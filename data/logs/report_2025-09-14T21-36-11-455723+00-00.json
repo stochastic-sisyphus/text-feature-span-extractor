@@ -1,0 +1,247 @@
+{
+  "field_statistics": {
+    "invoice_number": {
+      "PREDICTED": 5
+    },
+    "invoice_date": {
+      "PREDICTED": 3,
+      "ABSTAIN": 2
+    },
+    "due_date": {
+      "PREDICTED": 4,
+      "ABSTAIN": 1
+    },
+    "issue_date": {
+      "PREDICTED": 5
+    },
+    "total_amount": {
+      "ABSTAIN": 2,
+      "PREDICTED": 3
+    },
+    "subtotal": {
+      "ABSTAIN": 2,
+      "PREDICTED": 3
+    },
+    "tax_amount": {
+      "ABSTAIN": 2,
+      "PREDICTED": 3
+    },
+    "discount": {
+      "ABSTAIN": 2,
+      "PREDICTED": 3
+    },
+    "currency": {
+      "ABSTAIN": 3,
+      "PREDICTED": 2
+    },
+    "remittance_address": {
+      "ABSTAIN": 2,
+      "PREDICTED": 3
+    },
+    "bill_to_address": {
+      "ABSTAIN": 2,
+      "PREDICTED": 3
+    },
+    "ship_to_address": {
+      "ABSTAIN": 2,
+      "PREDICTED": 3
+    },
+    "vendor_name": {
+      "ABSTAIN": 2,
+      "PREDICTED": 3
+    },
+    "vendor_address": {
+      "ABSTAIN": 3,
+      "PREDICTED": 2
+    },
+    "customer_name": {
+      "ABSTAIN": 3,
+      "PREDICTED": 2
+    },
+    "customer_account": {
+      "ABSTAIN": 4,
+      "PREDICTED": 1
+    },
+    "purchase_order": {
+      "ABSTAIN": 4,
+      "PREDICTED": 1
+    },
+    "invoice_reference": {
+      "ABSTAIN": 4,
+      "PREDICTED": 1
+    },
+    "payment_terms": {
+      "ABSTAIN": 4,
+      "PREDICTED": 1
+    },
+    "bank_account": {
+      "ABSTAIN": 4,
+      "PREDICTED": 1
+    },
+    "routing_number": {
+      "ABSTAIN": 4,
+      "PREDICTED": 1
+    },
+    "swift_code": {
+      "ABSTAIN": 4,
+      "PREDICTED": 1
+    },
+    "notes": {
+      "ABSTAIN": 4,
+      "PREDICTED": 1
+    },
+    "tax_id": {
+      "ABSTAIN": 4,
+      "PREDICTED": 1
+    },
+    "contact_name": {
+      "ABSTAIN": 4,
+      "PREDICTED": 1
+    },
+    "contact_email": {
+      "ABSTAIN": 4,
+      "PREDICTED": 1
+    },
+    "contact_phone": {
+      "ABSTAIN": 4,
+      "PREDICTED": 1
+    }
+  },
+  "document_statistics": [
+    {
+      "sha256": "d2b2234e1c1dbb755dd9b63c4c3140b92afc51c950c16f31168771bd76cbce68",
+      "doc_id": "fs:d2b2234e1c1dbb75",
+      "pages": 3,
+      "tokens": 363,
+      "candidates": 4,
+      "predicted": 4,
+      "abstain": 23,
+      "missing": 0
+    },
+    {
+      "sha256": "556d15d2a61edc6a731fe2bc9004a1d6d3bb62bfd15b95f8e1272ff25a35ca0d",
+      "doc_id": "fs:556d15d2a61edc6a",
+      "pages": 149,
+      "tokens": 24611,
+      "candidates": 181,
+      "predicted": 25,
+      "abstain": 2,
+      "missing": 0
+    },
+    {
+      "sha256": "bc1e799de23c507a63c304307a3c2fa19420667bda3fef09a9187e43cb27cc49",
+      "doc_id": "fs:bc1e799de23c507a",
+      "pages": 2,
+      "tokens": 470,
+      "candidates": 4,
+      "predicted": 3,
+      "abstain": 24,
+      "missing": 0
+    },
+    {
+      "sha256": "aaa25ee5b835adf91196ca64d033837e4c3f7945dd345b510cfc37e8f8d03a89",
+      "doc_id": "fs:aaa25ee5b835adf9",
+      "pages": 7,
+      "tokens": 2025,
+      "candidates": 13,
+      "predicted": 13,
+      "abstain": 14,
+      "missing": 0
+    },
+    {
+      "sha256": "a094337e26f2e4f8ac893da5121555c547f3766b4ade8c83bf763bb6734a3edd",
+      "doc_id": "fs:a094337e26f2e4f8",
+      "pages": 7,
+      "tokens": 940,
+      "candidates": 14,
+      "predicted": 14,
+      "abstain": 13,
+      "missing": 0
+    }
+  ],
+  "review_queue_statistics": {
+    "total_entries": 93,
+    "by_field": {
+      "previous_balance": 5,
+      "payments_and_credits": 5,
+      "due_date": 4,
+      "tax_id": 4,
+      "bank_account": 4,
+      "routing_number": 4,
+      "swift_code": 4,
+      "notes": 4,
+      "customer_account": 4,
+      "purchase_order": 4,
+      "invoice_reference": 4,
+      "payment_terms": 4,
+      "contact_email": 4,
+      "contact_name": 4,
+      "contact_phone": 4,
+      "total_amount_due": 3,
+      "customer_name": 3,
+      "vendor_address": 3,
+      "currency": 3,
+      "invoice_date": 3,
+      "bill_to_address": 2,
+      "remittance_address": 2,
+      "discount": 2,
+      "tax_amount": 2,
+      "total_amount": 2,
+      "subtotal": 2,
+      "vendor_name": 2,
+      "ship_to_address": 2
+    },
+    "by_reason": {
+      "ABSTAIN": 93
+    }
+  },
+  "coverage_statistics": {
+    "total_documents": 5,
+    "documents_with_candidates": 5,
+    "total_candidates": 216,
+    "coverage_probes": {
+      "invoice_number": {
+        "cue_coverage_percent": 17.1,
+        "region_coverage_percent": 14.8,
+        "expected_type_count": 32,
+        "total_candidates": 216
+      },
+      "invoice_date": {
+        "cue_coverage_percent": 17.1,
+        "region_coverage_percent": 17.6,
+        "expected_type_count": 38,
+        "total_candidates": 216
+      },
+      "due_date": {
+        "cue_coverage_percent": 17.1,
+        "region_coverage_percent": 17.6,
+        "expected_type_count": 38,
+        "total_candidates": 216
+      },
+      "total_amount_due": {
+        "cue_coverage_percent": 17.1,
+        "region_coverage_percent": 50.5,
+        "expected_type_count": 109,
+        "total_candidates": 216
+      },
+      "account_number": {
+        "cue_coverage_percent": 17.1,
+        "region_coverage_percent": 14.8,
+        "expected_type_count": 32,
+        "total_candidates": 216
+      }
+    },
+    "bucket_distribution": {
+      "id_like": 32,
+      "amount_like": 109,
+      "keyword_proximal": 37,
+      "date_like": 38
+    }
+  },
+  "generated_at": "2025-09-14T21:36:11.455694+00:00",
+  "contract_version": "v1",
+  "feature_version": "v1",
+  "decoder_version": "v1",
+  "model_version": "unscored-baseline",
+  "calibration_version": "none"
+}
