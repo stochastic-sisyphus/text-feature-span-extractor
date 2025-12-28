@@ -8,6 +8,8 @@ from pathlib import Path
 
 import typer
 
+# ruff: noqa: F841 - Frozen pre-training snapshot:  some variables intentionally unused
+
 # Add src to path to import invoices package
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 

@@ -12,6 +12,8 @@ import pytest
 
 from invoices import candidates, decoder, emit, ingest, paths, tokenize, utils
 
+# ruff: noqa: F841 - Frozen pre-training snapshot:  some variables intentionally unused
+
 
 class TestGoldenOutputs:
     """Test deterministic PDF→JSON extraction with golden fixtures."""
