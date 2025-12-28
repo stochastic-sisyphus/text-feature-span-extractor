@@ -1,0 +1,61 @@
+{
+  "project_name": "Invoice Field Extraction",
+  "project_description": "Extract structured fields from invoice PDFs using text-layer only",
+  "project_type": "sequence_labeling",
+  "labels": [
+    {
+      "text": "InvoiceNumber",
+      "color": "#ff0000",
+      "suffix_key": "1"
+    },
+    {
+      "text": "InvoiceDate", 
+      "color": "#0000ff",
+      "suffix_key": "2"
+    },
+    {
+      "text": "DueDate",
+      "color": "#00ff00", 
+      "suffix_key": "3"
+    },
+    {
+      "text": "IssueDate",
+      "color": "#800080",
+      "suffix_key": "4"
+    },
+    {
+      "text": "TotalAmount",
+      "color": "#ffa500",
+      "suffix_key": "5"
+    },
+    {
+      "text": "Subtotal",
+      "color": "#ffc0cb",
+      "suffix_key": "6"
+    },
+    {
+      "text": "TaxAmount",
+      "color": "#a52a2a",
+      "suffix_key": "7"
+    },
+    {
+      "text": "VendorName",
+      "color": "#4b0082",
+      "suffix_key": "8"
+    },
+    {
+      "text": "CustomerName",
+      "color": "#800000",
+      "suffix_key": "9"
+    },
+    {
+      "text": "CustomerAccount",
+      "color": "#000080",
+      "suffix_key": "0"
+    }
+  ],
+  "guideline": "Label invoice fields using the exact text spans. Use character-level precision for field boundaries. Each field should be labeled with its complete value including numbers, dates, and text.",
+  "random_order": false,
+  "collaborative_annotation": false,
+  "allow_overlapping": false
+}

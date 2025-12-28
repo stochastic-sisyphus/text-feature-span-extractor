@@ -1,0 +1,788 @@
+{
+  "document_id": "fs:bc1e799de23c507a",
+  "pages": 2,
+  "contract_version": "1.0.0+32d6b8ce1ec8",
+  "feature_version": "v1",
+  "decoder_version": "v1",
+  "model_version": "unscored-baseline",
+  "calibration_version": "none",
+  "fields": {
+    "InvoiceNumber": {
+      "value": "9.99",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.19505882352941178,
+          0.0,
+          0.22793464052287582,
+          0.0
+        ],
+        "token_span": [
+          "63",
+          "281",
+          "35",
+          "247",
+          "160",
+          "259",
+          "270",
+          "186"
+        ]
+      },
+      "raw_text": "$9.99 morf IP ekat the ym ta for"
+    },
+    "InvoiceDate": {
+      "value": "9.99",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.19432679738562092,
+          0.0,
+          0.22733333333333336,
+          0.0
+        ],
+        "token_span": [
+          "291",
+          "63",
+          "281",
+          "35",
+          "247",
+          "160",
+          "259",
+          "270"
+        ]
+      },
+      "raw_text": "T&TA $9.99 morf IP ekat the ym ta"
+    },
+    "DueDate": {
+      "value": "9.99",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.19390849673202618,
+          0.0,
+          0.22733333333333336,
+          0.0
+        ],
+        "token_span": [
+          "172",
+          "291",
+          "63",
+          "281",
+          "35",
+          "247",
+          "160",
+          "259"
+        ]
+      },
+      "raw_text": "may T&TA $9.99 morf IP ekat the ym"
+    },
+    "IssueDate": {
+      "value": "9.99",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.1937254901960784,
+          0.0,
+          0.22733333333333336,
+          0.0
+        ],
+        "token_span": [
+          "85",
+          "172",
+          "291",
+          "63",
+          "281",
+          "35",
+          "247",
+          "160"
+        ]
+      },
+      "raw_text": "AT&T may T&TA $9.99 morf IP ekat the"
+    },
+    "TotalAmount": {
+      "value": "9.99",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.1921045751633987,
+          0.0,
+          0.22733333333333336,
+          0.0
+        ],
+        "token_span": [
+          "185",
+          "85",
+          "172",
+          "291",
+          "63",
+          "281",
+          "35",
+          "247"
+        ]
+      },
+      "raw_text": "up AT&T may T&TA $9.99 morf IP ekat"
+    },
+    "Subtotal": {
+      "value": "9.99",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.19198692810457518,
+          0.0,
+          0.2342614379084967,
+          0.0
+        ],
+        "token_span": [
+          "196",
+          "185",
+          "85",
+          "172",
+          "291",
+          "63",
+          "281",
+          "35"
+        ]
+      },
+      "raw_text": "secure, up AT&T may T&TA $9.99 morf IP"
+    },
+    "TaxAmount": {
+      "value": "2009.99",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.18871895424836602,
+          0.0,
+          0.2342614379084967,
+          0.0
+        ],
+        "token_span": [
+          "27",
+          "196",
+          "185",
+          "85",
+          "172",
+          "291",
+          "63",
+          "281"
+        ]
+      },
+      "raw_text": "200M secure, up AT&T may T&TA $9.99 morf"
+    },
+    "Discount": {
+      "value": "2009.99",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.188718954248366,
+          0.0,
+          0.2342614379084967,
+          0.0
+        ],
+        "token_span": [
+          "159",
+          "27",
+          "196",
+          "185",
+          "85",
+          "172",
+          "291",
+          "63"
+        ]
+      },
+      "raw_text": "in 200M secure, up AT&T may T&TA $9.99"
+    },
+    "Currency": {
+      "value": "200.00",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.18699346570261438,
+          0.0,
+          0.23532026308823528,
+          0.0
+        ],
+        "token_span": [
+          "203",
+          "159",
+          "27",
+          "196",
+          "185",
+          "85",
+          "172",
+          "291"
+        ]
+      },
+      "raw_text": "Internet in 200M secure, up AT&T may T&TA"
+    },
+    "RemittanceAddress": {
+      "value": "200.00",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.18651470588235292,
+          0.0,
+          0.23532026308823528,
+          0.0
+        ],
+        "token_span": [
+          "236",
+          "203",
+          "159",
+          "27",
+          "196",
+          "185",
+          "85",
+          "172"
+        ]
+      },
+      "raw_text": "eciovni Internet in 200M secure, up AT&T may"
+    },
+    "BillToAddress": {
+      "value": null,
+      "confidence": 0.0,
+      "status": "ABSTAIN",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.18492483660130724,
+          0.0,
+          0.23532026308823528,
+          0.0
+        ],
+        "token_span": [
+          "258",
+          "236",
+          "203",
+          "159",
+          "27",
+          "196",
+          "185",
+          "85"
+        ]
+      },
+      "raw_text": ".llib eciovni Internet in 200M secure, up AT&T"
+    },
+    "ShipToAddress": {
+      "value": null,
+      "confidence": 0.0,
+      "status": "ABSTAIN",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.18350326797385622,
+          0.0,
+          0.23532026308823528,
+          0.0
+        ],
+        "token_span": [
+          "133",
+          "258",
+          "236",
+          "203",
+          "159",
+          "27",
+          "196",
+          "185"
+        ]
+      },
+      "raw_text": "your .llib eciovni Internet in 200M secure, up"
+    },
+    "VendorName": {
+      "value": null,
+      "confidence": 0.0,
+      "status": "ABSTAIN",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.5802794117647059,
+          0.0,
+          0.6354117706862745,
+          0.0
+        ],
+        "token_span": [
+          "36",
+          "93",
+          "160",
+          "87",
+          "152",
+          "145",
+          "56",
+          "118"
+        ]
+      },
+      "raw_text": "to $353.10 BOX $0.00 check include Go take"
+    },
+    "VendorAddress": {
+      "value": null,
+      "confidence": 0.0,
+      "status": "ABSTAIN",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.5779673151797386,
+          0.0,
+          0.6354117706862745,
+          0.0
+        ],
+        "token_span": [
+          "77",
+          "36",
+          "93",
+          "160",
+          "87",
+          "152",
+          "145",
+          "56"
+        ]
+      },
+      "raw_text": "$363.09 to $353.10 BOX $0.00 check include Go"
+    },
+    "CustomerName": {
+      "value": null,
+      "confidence": 0.0,
+      "status": "ABSTAIN",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.5777532679738564,
+          0.0,
+          0.6354117706862745,
+          0.0
+        ],
+        "token_span": [
+          "117",
+          "77",
+          "36",
+          "93",
+          "160",
+          "87",
+          "152",
+          "145"
+        ]
+      },
+      "raw_text": "may $363.09 to $353.10 BOX $0.00 check include"
+    },
+    "CustomerAccount": {
+      "value": null,
+      "confidence": 0.0,
+      "status": "ABSTAIN",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.18024673202614377,
+          0.0,
+          0.23532026308823528,
+          0.0
+        ],
+        "token_span": [
+          "290",
+          "133",
+          "258",
+          "236",
+          "203",
+          "159",
+          "27",
+          "196"
+        ]
+      },
+      "raw_text": "ot your .llib eciovni Internet in 200M secure,"
+    },
+    "PurchaseOrder": {
+      "value": "0.20",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.1798954248366013,
+          0.0,
+          0.23532026308823528,
+          0.0
+        ],
+        "token_span": [
+          "45",
+          "290",
+          "133",
+          "258",
+          "236",
+          "203",
+          "159",
+          "27"
+        ]
+      },
+      "raw_text": "Charge ot your .llib eciovni Internet in 200M"
+    },
+    "InvoiceReference": {
+      "value": null,
+      "confidence": 0.0,
+      "status": "ABSTAIN",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.5714150365686275,
+          0.0,
+          0.6354117706862745,
+          0.0
+        ],
+        "token_span": [
+          "84",
+          "117",
+          "77",
+          "36",
+          "93",
+          "160",
+          "87",
+          "152"
+        ]
+      },
+      "raw_text": "-$363.09 may $363.09 to $353.10 BOX $0.00 check"
+    },
+    "PaymentTerms": {
+      "value": null,
+      "confidence": 0.0,
+      "status": "ABSTAIN",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.5707843150163399,
+          0.0,
+          0.6354117706862745,
+          0.0
+        ],
+        "token_span": [
+          "96",
+          "84",
+          "117",
+          "77",
+          "36",
+          "93",
+          "160",
+          "87"
+        ]
+      },
+      "raw_text": "$353.10 -$363.09 may $363.09 to $353.10 BOX $0.00"
+    },
+    "BankAccount": {
+      "value": "31212212024.00",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.7781764707026143,
+          0.0,
+          0.8445424844117646,
+          0.0
+        ],
+        "token_span": [
+          "5",
+          "39",
+          "15",
+          "131",
+          "6",
+          "70",
+          "16",
+          "67"
+        ]
+      },
+      "raw_text": "of Total 31, 21, 2 21, 2024 pay"
+    },
+    "RoutingNumber": {
+      "value": "5014.00",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.6025506535947713,
+          0.0,
+          0.6674901960784315,
+          0.0
+        ],
+        "token_span": [
+          "118",
+          "165",
+          "142",
+          "161",
+          "57",
+          "127",
+          "3",
+          "12"
+        ]
+      },
+      "raw_text": "take STREAM, number: 5014 to pay Page: Issue"
+    },
+    "SWIFTCode": {
+      "value": "31212212024.00",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.7722467322712417,
+          0.0,
+          0.8420735294117648,
+          0.0
+        ],
+        "token_span": [
+          "69",
+          "5",
+          "39",
+          "15",
+          "131",
+          "6",
+          "70",
+          "16"
+        ]
+      },
+      "raw_text": "Aug of Total 31, 21, 2 21, 2024"
+    },
+    "LineItemDescription": {
+      "value": "3053190493121221.00",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.7687058823529411,
+          0.0,
+          0.838955882352941,
+          0.0
+        ],
+        "token_span": [
+          "22",
+          "69",
+          "5",
+          "39",
+          "15",
+          "131",
+          "6",
+          "70"
+        ]
+      },
+      "raw_text": "305319049 Aug of Total 31, 21, 2 21,"
+    },
+    "LineItemQuantity": {
+      "value": "13053190493121.00",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.7687058823529411,
+          0.0,
+          0.838955882352941,
+          0.0
+        ],
+        "token_span": [
+          "4",
+          "14",
+          "22",
+          "69",
+          "5",
+          "39",
+          "15",
+          "131"
+        ]
+      },
+      "raw_text": "1 Jul 305319049 Aug of Total 31, 21,"
+    },
+    "LineItemUnitPrice": {
+      "value": "30531904931212.00",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.7687058823529411,
+          0.0,
+          0.838955882352941,
+          0.0
+        ],
+        "token_span": [
+          "14",
+          "22",
+          "69",
+          "5",
+          "39",
+          "15",
+          "131",
+          "6"
+        ]
+      },
+      "raw_text": "Jul 305319049 Aug of Total 31, 21, 2"
+    },
+    "LineItemTotal": {
+      "value": "312122120242024.00",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.7903970588235293,
+          0.0,
+          0.8593913398692812,
+          0.0
+        ],
+        "token_span": [
+          "15",
+          "131",
+          "6",
+          "70",
+          "16",
+          "67",
+          "132",
+          "40"
+        ]
+      },
+      "raw_text": "31, 21, 2 21, 2024 pay 2024 due"
+    },
+    "Notes": {
+      "value": null,
+      "confidence": 0.0,
+      "status": "ABSTAIN",
+      "provenance": {
+        "page": 1,
+        "bbox": [
+          0.05349019617647059,
+          0.0,
+          0.11657516339869282,
+          0.0
+        ],
+        "token_span": [
+          "22",
+          "155",
+          "181",
+          "54",
+          "285",
+          "243",
+          "74",
+          "169"
+        ]
+      },
+      "raw_text": "1. such time payment yb timbus before $30."
+    },
+    "TaxID": {
+      "value": "21202420242024.00",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.805563725735294,
+          0.0,
+          0.8694934648039214,
+          0.0
+        ],
+        "token_span": [
+          "70",
+          "16",
+          "67",
+          "132",
+          "40",
+          "71",
+          "68"
+        ]
+      },
+      "raw_text": "21, 2024 pay 2024 due 2024 by:"
+    },
+    "ContactName": {
+      "value": "130531904931.00",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.7658006543464052,
+          0.0,
+          0.838955882352941,
+          0.0
+        ],
+        "token_span": [
+          "66",
+          "4",
+          "14",
+          "22",
+          "69",
+          "5",
+          "39",
+          "15"
+        ]
+      },
+      "raw_text": "Please 1 Jul 305319049 Aug of Total 31,"
+    },
+    "ContactEmail": {
+      "value": "21221202420242024.00",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.7914624183006537,
+          0.0,
+          0.863047385866013,
+          0.0
+        ],
+        "token_span": [
+          "131",
+          "6",
+          "70",
+          "16",
+          "67",
+          "132",
+          "40",
+          "71"
+        ]
+      },
+      "raw_text": "21, 2 21, 2024 pay 2024 due 2024"
+    },
+    "ContactPhone": {
+      "value": "5014.00",
+      "confidence": 0.0,
+      "status": "PREDICTED",
+      "provenance": {
+        "page": 0,
+        "bbox": [
+          0.5979264705882352,
+          0.0,
+          0.6674901960784315,
+          0.0
+        ],
+        "token_span": [
+          "56",
+          "118",
+          "165",
+          "142",
+          "161",
+          "57",
+          "127",
+          "3"
+        ]
+      },
+      "raw_text": "Go take STREAM, number: 5014 to pay Page:"
+    }
+  },
+  "line_items": [],
+  "extensions": {},
+  "experimental": {}
+}

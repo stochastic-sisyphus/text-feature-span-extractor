@@ -1,0 +1,41 @@
+{
+  "normalize_version": "1.0.0+text_layer",
+  "total_tasks": 5,
+  "processed_files": [
+    {
+      "filename": "4.1.0_852911403010861120231020.pdf - PDF Source.pdf",
+      "doc_id": "fs:d2b2234e1c1dbb75",
+      "sha256": "d2b2234e1c1dbb755dd9b63c4c3140b92afc51c950c16f31168771bd76cbce68",
+      "text_length": 2269
+    },
+    {
+      "filename": "5.1.0_2311890442071700520240801.pdf - PDF Source.pdf",
+      "doc_id": "fs:556d15d2a61edc6a",
+      "sha256": "556d15d2a61edc6a731fe2bc9004a1d6d3bb62bfd15b95f8e1272ff25a35ca0d",
+      "text_length": 171964
+    },
+    {
+      "filename": "1.1.0_30531904920240731.pdf - PDF Source.pdf",
+      "doc_id": "fs:bc1e799de23c507a",
+      "sha256": "bc1e799de23c507a63c304307a3c2fa19420667bda3fef09a9187e43cb27cc49",
+      "text_length": 2937
+    },
+    {
+      "filename": "3.1.0_INV9290201.pdf - PDF Source.pdf",
+      "doc_id": "fs:aaa25ee5b835adf9",
+      "sha256": "aaa25ee5b835adf91196ca64d033837e4c3f7945dd345b510cfc37e8f8d03a89",
+      "text_length": 15195
+    },
+    {
+      "filename": "2.1.0_US00265041.pdf - PDF Source.pdf",
+      "doc_id": "fs:a094337e26f2e4f8",
+      "sha256": "a094337e26f2e4f8ac893da5121555c547f3766b4ade8c83bf763bb6734a3edd",
+      "text_length": 6546
+    }
+  ],
+  "output_paths": {
+    "tasks": "tools/doccano/output/tasks.json",
+    "labeled_pdfs": "tools/doccano/output/labeled_pdfs",
+    "summary": "tools/doccano/output/generation_summary.json"
+  }
+}
