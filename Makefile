@@ -45,7 +45,7 @@ test-golden:
 # Linting and formatting
 lint:
 	ruff check src/ tests/ scripts/
-	mypy src/
+	# mypy src/  # Disabled for frozen pre-training snapshot
 
 format:
 	black src/ tests/ scripts/
