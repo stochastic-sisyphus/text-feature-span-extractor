@@ -5,11 +5,17 @@
 
 > But! It is made reusable through generalizing the tailored aspects. 
 and despite that, the system still works as is throughout these main mechanisms:
+> 
 > Core pipeline (ingest → tokenize → candidates → decode → emit) is fully functional
+> 
 > Deterministic processing with SHA-based content addressing
+> 
 > Hungarian assignment decoder with weak-prior fallback
+> 
 > XGBoost training infrastructure (requires labeled data)
+> 
 > Comprehensive tests for determinism, idempotency, contract integrity
+> 
 > Normalization for dates, amounts, and IDs
 
 ---
