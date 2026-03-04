@@ -1,0 +1,127 @@
+{
+  "description": "Ground truth values extracted from UNIBILL format files in seed_extract/",
+  "version": "1.0.0",
+  "created_from": "seed_extract/*.txt UNIBILL pipe-delimited format",
+  "documents": {
+    "bc1e799de23c507a63c304307a3c2fa19420667bda3fef09a9187e43cb27cc49": {
+      "filename": "1.1.0_30531904920240731.pdf - PDF Source.pdf",
+      "short_sha": "bc1e799de23c507a",
+      "description": "EP Wealth Advisors / AT&T",
+      "ground_truth": {
+        "InvoiceNumber": "ABSTAIN",
+        "InvoiceDate": "2024-07-31",
+        "DueDate": "2024-08-21",
+        "TotalAmount": "353.10",
+        "Subtotal": "353.10",
+        "TaxAmount": "23.10",
+        "VendorName": "AT&T",
+        "CustomerName": "WEALTH ADVISORS INC.",
+        "CustomerAccount": "305319049",
+        "BillingReference": "30531904920240731",
+        "Currency": "USD"
+      },
+      "source": "seed_extract/1.1.1_unibill_EPWealthAdvisors_305319049_20240731_IIQ2103048_862024123017PM_1.txt"
+    },
+    "a094337e26f2e4f8ac893da5121555c547f3766b4ade8c83bf763bb6734a3edd": {
+      "filename": "2.1.0_US00265041.pdf - PDF Source.pdf",
+      "short_sha": "a094337e26f2e4f8",
+      "description": "AM Castle & Co / AT&T",
+      "ground_truth": {
+        "InvoiceNumber": "US00265041",
+        "InvoiceDate": "2024-07-30",
+        "DueDate": "2024-08-29",
+        "TotalAmount": "6161.61",
+        "Subtotal": "6161.61",
+        "TaxAmount": "705.63",
+        "Discount": "-55881.60",
+        "VendorName": "AT&T",
+        "CustomerName": "A. M. Castle & Co.",
+        "CustomerAccount": "US002650",
+        "Currency": "USD"
+      },
+      "source": "seed_extract/2.1.1_unibill_AMCastleandCo_US002650_20240730_IIQ2094680_81202411514PM_1.txt"
+    },
+    "aaa25ee5b835adf91196ca64d033837e4c3f7945dd345b510cfc37e8f8d03a89": {
+      "filename": "3.1.0_INV9290201.pdf - PDF Source.pdf",
+      "short_sha": "aaa25ee5b835adf9",
+      "description": "AM Castle & Co / GTT Communications",
+      "ground_truth": {
+        "InvoiceNumber": "INV9290201",
+        "InvoiceDate": "2024-07-01",
+        "DueDate": "2024-07-30",
+        "TotalAmount": "41411.65",
+        "Subtotal": "20303.30",
+        "TaxAmount": "2461.92",
+        "VendorName": "GTT Communications",
+        "CustomerName": "AMCastleandCo",
+        "CustomerAccount": "T190551",
+        "Currency": "USD"
+      },
+      "source": "seed_extract/3.1.1_unibill_AMCastleandCo_T190551_20240701_IIQ2057741_732024102149AM_1.txt"
+    },
+    "d2b2234e1c1dbb755dd9b63c4c3140b92afc51c950c16f31168771bd76cbce68": {
+      "filename": "4.1.0_852911403010861120231020.pdf - PDF Source.pdf",
+      "short_sha": "d2b2234e1c1dbb75",
+      "description": "Sparrow Health System / Comcast",
+      "ground_truth": {
+        "InvoiceNumber": "852911403010861100194902",
+        "InvoiceDate": "2023-10-20",
+        "DueDate": "2023-11-10",
+        "TotalAmount": "194.90",
+        "Subtotal": "194.90",
+        "TaxAmount": "0.00",
+        "VendorName": "Comcast",
+        "CustomerName": "SPARROW HEALTH",
+        "CustomerAccount": "852911403010861100194902",
+        "Currency": "USD"
+      },
+      "notes": "Labels corrected 2026-01-31: original UNIBILL labels were from a different Comcast statement (wrong account, amounts, dates). Re-labeled from PDF text layer.",
+      "source": "seed_extract/4.1.1_unibill_SparrowHealthSystem_8529114010081515_20231019_IIQ1745107_10212023101051AM_1.txt"
+    },
+    "556d15d2a61edc6a731fe2bc9004a1d6d3bb62bfd15b95f8e1272ff25a35ca0d": {
+      "filename": "5.1.0_2311890442071700520240801.pdf - PDF Source.pdf",
+      "short_sha": "556d15d2a61edc6a",
+      "description": "Sparrow Health System / Frontier",
+      "ground_truth": {
+        "InvoiceNumber": "2311890442071700520240801",
+        "InvoiceDate": "2024-08-01",
+        "DueDate": "2024-08-31",
+        "TotalAmount": "-6035.39",
+        "Subtotal": "15859.70",
+        "TaxAmount": "2348.44",
+        "VendorName": "Frontier",
+        "CustomerName": "SPARROW HEALTH SYSTEM",
+        "CustomerAccount": "23118904420717005",
+        "Currency": "USD"
+      },
+      "notes": "Credit balance - TotalAmount is negative",
+      "source": "seed_extract/5.1.1_unibill_SparrowHealthSystem_23118904420717005_20240801_IIQ2102969_862024121026PM_1.txt"
+    }
+  },
+  "field_comparison_rules": {
+    "InvoiceDate": {
+      "type": "date",
+      "normalization": "ISO8601",
+      "input_formats": ["M/D/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"]
+    },
+    "DueDate": {
+      "type": "date",
+      "normalization": "ISO8601",
+      "input_formats": ["M/D/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"]
+    },
+    "TotalAmount": {
+      "type": "amount",
+      "normalization": "decimal_string",
+      "precision": 2,
+      "allow_negative": true
+    },
+    "VendorName": {
+      "type": "text",
+      "comparison": "case_insensitive_contains"
+    },
+    "CustomerName": {
+      "type": "text",
+      "comparison": "case_insensitive_contains"
+    }
+  }
+}

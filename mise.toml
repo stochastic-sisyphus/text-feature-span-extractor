@@ -1,0 +1,223 @@
+# =============================================================================
+# mise.toml — InvoiceX project-level mise configuration
+#
+# Manages:
+# - Runtime versions (Python 3.14, Node 25)
+# - Environment defaults for local development
+# - Task automation (mirrors Makefile targets with mise caching)
+#
+# Usage:
+#   mise install              # Install Python 3.14 + Node 25
+#   mise run test             # Run tests (cached)
+#   mise run run file.pdf     # Extract single file
+#   mise tasks                # List all available tasks
+# =============================================================================
+
+# --- Runtime Versions ---
+[tools]
+python = "3.14"
+node = "25"
+
+# --- Environment Defaults (Local Development) ---
+# These are sane defaults for local dev. Docker uses .env instead.
+[env]
+INVOICEX_LOG_LEVEL = "DEBUG"
+INVOICEX_LOG_FORMAT = "text"
+INVOICEX_STORAGE_BACKEND = "local"
+INVOICEX_DOCUMENT_SOURCE = "local"
+INVOICEX_OUTPUT_BACKEND = "local"
+INVOICEX_USE_MLFLOW = "false"
+INVOICEX_USE_RANKER = "false"
+INVOICEX_ML_SCORE_WEIGHT = "0.7"
+INVOICEX_DATA_DIR = "data"
+ENVIRONMENT = "development"
+
+# --- Task Automation ---
+
+[tasks.help]
+description = "Show available make targets"
+run = "make help"
+
+[tasks.install]
+description = "Install package and dependencies"
+run = "python3 -m pip install -e ."
+
+[tasks.install-dev]
+description = "Install with development dependencies"
+run = "python3 -m pip install -e .[dev]"
+
+[tasks.test]
+description = "Run all tests (excluding golden tests)"
+sources = ["src/**/*.py", "tests/**/*.py"]
+run = "python3 -m pytest tests/ -v --ignore=tests/golden/"
+
+[tasks.test-golden]
+description = "Run golden tests only (determinism checks)"
+sources = ["src/**/*.py", "tests/golden/**/*"]
+run = "python3 -m pytest tests/golden/ -v"
+
+[tasks.lint]
+description = "Run linting (ruff, mypy)"
+sources = ["src/**/*.py", "tests/**/*.py", "scripts/**/*.py"]
+run = """
+ruff check src/ tests/ scripts/
+mypy src/
+"""
+
+[tasks.format]
+description = "Format code (black, isort, ruff --fix)"
+run = """
+black src/ tests/ scripts/
+isort src/ tests/ scripts/
+ruff check --fix src/ tests/ scripts/
+"""
+
+[tasks.clean]
+description = "Clean generated data and cache"
+run = """
+rm -rf data/ingest/
+rm -rf data/tokens/
+rm -rf data/candidates/
+rm -rf data/predictions/
+rm -rf data/review/
+rm -rf data/logs/
+rm -rf data/models/
+rm -rf artifacts/
+find . -type d -name "__pycache__" -exec rm -rf {} +
+find . -type f -name "*.pyc" -delete
+"""
+
+[tasks.run]
+description = "Extract single PDF file (Usage: mise run run path/to/file.pdf)"
+run = """
+FILE="{{arg(name='file')}}"
+if [ -z "$FILE" ]; then
+  echo "Error: FILE parameter required. Usage: mise run run path/to/file.pdf"
+  exit 1
+fi
+echo "Extracting: $FILE"
+mkdir -p artifacts
+TEMP_DIR=$(mktemp -d)
+cp "$FILE" "$TEMP_DIR/"
+python scripts/run_pipeline.py pipeline --seed-folder "$TEMP_DIR" --verbose
+rm -rf "$TEMP_DIR"
+echo "✓ Extraction complete. Outputs saved to data/predictions/"
+mise run artifacts
+"""
+
+[tasks.pipeline]
+description = "Run full pipeline on seed_pdfs/"
+run = """
+echo "Running full pipeline on seed_pdfs/"
+python scripts/run_pipeline.py pipeline --seed-folder seed_pdfs/ --verbose
+mise run artifacts
+"""
+
+[tasks.status]
+description = "Show pipeline status"
+run = "python scripts/run_pipeline.py status"
+
+[tasks.artifacts]
+description = "Copy outputs to artifacts/ directory"
+run = """
+echo "Copying outputs to artifacts/"
+mkdir -p artifacts/predictions
+mkdir -p artifacts/reports
+if [ -d data/predictions/ ]; then
+  cp data/predictions/*.json artifacts/predictions/ 2>/dev/null || true
+fi
+if [ -d data/logs/ ]; then
+  cp data/logs/*.json artifacts/reports/ 2>/dev/null || true
+fi
+echo "✓ Artifacts ready in artifacts/"
+"""
+
+[tasks.dev-setup]
+description = "Set up development environment"
+depends = ["install-dev"]
+run = "echo 'Development environment ready'"
+
+[tasks.ci]
+description = "Run all CI checks (lint → test → test-golden)"
+depends = ["lint", "test", "test-golden"]
+run = "echo '✓ All CI checks passed'"
+
+[tasks.grafana-plugin]
+description = "Build Grafana plugin (required before docker compose up)"
+sources = ["grafana-plugins/invoicex-labeling-app/src/**/*"]
+outputs = ["grafana-plugins/invoicex-labeling-app/dist/"]
+run = """
+echo "Building Grafana plugin..."
+cd grafana-plugins/invoicex-labeling-app
+npm install
+npm run build
+echo "✓ Plugin built → dist/ ready for Grafana volume mount"
+"""
+
+[tasks.seed]
+description = "Seed pipeline with sample PDFs (run after first docker compose up)"
+run = """
+echo "Running pipeline on seed_pdfs/ to populate data for the API..."
+python scripts/run_pipeline.py pipeline --seed-folder seed_pdfs/ --verbose
+echo "✓ Pipeline seeded. API endpoints will now return data."
+"""
+
+[tasks.determinism-check]
+description = "Quick check for determinism (runs pipeline twice, diffs outputs)"
+run = """
+echo "Testing determinism with seed PDFs..."
+mise run clean
+mise run pipeline > run1.log 2>&1
+cp -r data/predictions artifacts/run1
+mise run clean
+mise run pipeline > run2.log 2>&1
+cp -r data/predictions artifacts/run2
+echo "Comparing outputs..."
+if diff -r artifacts/run1 artifacts/run2 > /dev/null; then
+  echo "✓ Outputs are deterministic"
+  rm -rf artifacts/run1 artifacts/run2 run1.log run2.log
+else
+  echo "✗ Outputs differ between runs"
+  echo "Check artifacts/run1 vs artifacts/run2"
+  exit 1
+fi
+"""
+
+[tasks.deploy]
+description = "Deploy InvoiceX with Docker Compose"
+run = """
+echo "Deploying InvoiceX with Docker Compose..."
+if [ ! -f .env ]; then
+  echo "⚠ .env not found. Creating from .env.example..."
+  cp .env.example .env
+  echo "  Edit .env with production values before deploying."
+  exit 1
+fi
+echo "Building and starting services..."
+docker compose up -d --build
+echo "✓ Deployment complete. Services starting..."
+echo ""
+echo "Service URLs:"
+echo "  - Grafana UI: http://localhost:8888"
+echo "  - API:        http://localhost:8888/api/v1"
+echo "  - MLflow:     http://localhost:8888/mlflow"
+echo ""
+echo "Check logs: docker compose logs -f"
+"""
+
+[tasks.schema-bump]
+description = "Bump schema version (Usage: mise run schema-bump <patch|minor|major> \"Change description\")"
+run = """
+BUMP_TYPE="{{arg(name='bump_type')}}"
+DESCRIPTION="{{arg(name='description')}}"
+if [ -z "$BUMP_TYPE" ] || [ -z "$DESCRIPTION" ]; then
+  echo "Error: Missing arguments"
+  echo "Usage: mise run schema-bump <patch|minor|major> \"Change description\""
+  echo ""
+  echo "Examples:"
+  echo "  mise run schema-bump minor \"Added BillingReference field\""
+  echo "  mise run schema-bump patch \"Fixed TotalAmount validation regex\""
+  exit 1
+fi
+python scripts/bump_schema.py "$BUMP_TYPE" "$DESCRIPTION"
+"""

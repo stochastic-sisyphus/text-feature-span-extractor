@@ -1,0 +1,793 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "version": "1.4.0",
+  "title": "Invoice Extraction Contract Schema",
+  "description": "Schema defining extractable invoice fields with types, validation rules, and confidence thresholds",
+  "version_history": [
+    {
+      "version": "1.0.0",
+      "date": "2024-01-01",
+      "changes": [
+        "Initial schema release with 32 core invoice fields",
+        "Added field definitions with types, validation rules, and confidence thresholds",
+        "Defined output schema structure with provenance tracking"
+      ]
+    },
+    {
+      "version": "1.1.0",
+      "date": "2024-06-01",
+      "changes": [
+        "Added extensions.routing for confidence-gated routing metadata",
+        "Enhanced output_schema with routing properties"
+      ]
+    },
+    {
+      "version": "1.2.0",
+      "date": "2025-01-01",
+      "changes": [
+        "Added version_history for schema evolution tracking",
+        "Added compatibility object with minimum_consumer_version",
+        "Added introduced_in lifecycle metadata to all field definitions"
+      ]
+    },
+    {
+      "version": "1.3.0",
+      "date": "2026-02-08",
+      "changes": [
+        "Added BillingReference computed field (account+date composite)"
+      ]
+    },
+    {
+      "version": "1.4.0",
+      "date": "2026-02-09",
+      "changes": [
+        "Added pipeline metadata keys: anchor_override, spatial_region, priority_bonus, keyword_proximal, importance, computed_fn, validation_subtype, dataverse_column"
+      ]
+    }
+  ],
+  "compatibility": {
+    "minimum_consumer_version": "1.0.0",
+    "breaking_changes_after": null,
+    "deprecation_policy": "Fields deprecated in version N will be removed in version N+2"
+  },
+  "fields": [
+    "InvoiceNumber",
+    "InvoiceDate",
+    "DueDate",
+    "IssueDate",
+    "TotalAmount",
+    "Subtotal",
+    "TaxAmount",
+    "Discount",
+    "Currency",
+    "RemittanceAddress",
+    "BillToAddress",
+    "ShipToAddress",
+    "VendorName",
+    "VendorAddress",
+    "CustomerName",
+    "CustomerAccount",
+    "PurchaseOrder",
+    "InvoiceReference",
+    "PaymentTerms",
+    "BankAccount",
+    "RoutingNumber",
+    "SWIFTCode",
+    "BillingReference",
+    "LineItemDescription",
+    "LineItemQuantity",
+    "LineItemUnitPrice",
+    "LineItemTotal",
+    "Notes",
+    "TaxID",
+    "ContactName",
+    "ContactEmail",
+    "ContactPhone"
+  ],
+  "field_definitions": {
+    "InvoiceNumber": {
+      "type": "id",
+      "description": "Unique identifier for the invoice",
+      "required": true,
+      "confidence_threshold": 0.9,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "min_length": 1,
+        "max_length": 50,
+        "pattern": "^[A-Za-z0-9\\-_#./: ]+$"
+      },
+      "bucket_preference": [
+        "id_like"
+      ],
+      "format_hint": "(?i)(inv|invoice|bill|receipt|ref|no\\.?|#|factura|rechnung|facture)|\\d{4,}|[A-Z]{1,5}[\\-/][0-9]+",
+      "format_penalty": 0.3,
+      "examples": [
+        "INV-2024-001",
+        "12345",
+        "305319049",
+        "A-123-456",
+        "2024/INV/001"
+      ],
+      "priority_bonus": 0.5,
+      "importance": 1.0,
+      "dataverse_column": "invoice_number"
+    },
+    "InvoiceDate": {
+      "type": "date",
+      "description": "Date the invoice was issued",
+      "required": true,
+      "confidence_threshold": 0.85,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "format": "ISO8601",
+        "min_date": "1990-01-01",
+        "max_date_offset_days": 365
+      },
+      "bucket_preference": [
+        "date_like"
+      ],
+      "examples": [
+        "2024-01-15",
+        "01/15/2024",
+        "January 15, 2024"
+      ],
+      "importance": 0.85,
+      "priority_bonus": 0.01,
+      "spatial_bias": {
+        "position": "top",
+        "penalty": 0.3,
+        "threshold": 0.5
+      },
+      "dataverse_column": "invoice_date"
+    },
+    "DueDate": {
+      "type": "date",
+      "description": "Date payment is due",
+      "required": false,
+      "confidence_threshold": 0.8,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "format": "ISO8601",
+        "min_date": "1990-01-01",
+        "max_date_offset_days": 730
+      },
+      "bucket_preference": [
+        "date_like"
+      ],
+      "examples": [
+        "2024-02-15",
+        "Net 30",
+        "02/15/2024"
+      ],
+      "importance": 0.8,
+      "spatial_bias": {
+        "position": "bottom",
+        "penalty": 0.3,
+        "threshold": 0.3
+      },
+      "dataverse_column": "due_date"
+    },
+    "IssueDate": {
+      "type": "date",
+      "description": "Date the invoice was created (may differ from invoice date)",
+      "required": false,
+      "confidence_threshold": 0.8,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "format": "ISO8601"
+      },
+      "bucket_preference": [
+        "date_like"
+      ],
+      "importance": 0.4,
+      "priority_bonus": 0.01
+    },
+    "TotalAmount": {
+      "type": "amount",
+      "description": "Total amount due on the invoice",
+      "required": true,
+      "confidence_threshold": 0.95,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "min_value": 0,
+        "max_value": 999999999.99,
+        "decimal_places": 2
+      },
+      "bucket_preference": [
+        "amount_like"
+      ],
+      "examples": [
+        "$1,234.56",
+        "1234.56 USD",
+        "\u20ac500.00"
+      ],
+      "spatial_region": "footer",
+      "priority_bonus": 0.02,
+      "importance": 0.95,
+      "dataverse_column": "total_amount"
+    },
+    "Subtotal": {
+      "type": "amount",
+      "description": "Subtotal before tax and discounts",
+      "required": false,
+      "confidence_threshold": 0.9,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "min_value": 0,
+        "decimal_places": 2
+      },
+      "bucket_preference": [
+        "amount_like"
+      ],
+      "anchor_override": "total",
+      "spatial_region": "footer",
+      "dataverse_column": "subtotal"
+    },
+    "TaxAmount": {
+      "type": "amount",
+      "description": "Total tax amount",
+      "required": false,
+      "confidence_threshold": 0.85,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "min_value": 0,
+        "decimal_places": 2
+      },
+      "bucket_preference": [
+        "amount_like"
+      ],
+      "anchor_override": "tax",
+      "anchor_bonus_override": {
+        "anchor": "tax",
+        "below_bonus": 0.5,
+        "below_dist_threshold": 0.3,
+        "reading_order_bonus": 0.4,
+        "reading_order_dist_threshold": 0.2
+      },
+      "spatial_region": "footer",
+      "dataverse_column": "tax_amount"
+    },
+    "Discount": {
+      "type": "amount",
+      "description": "Discount amount applied",
+      "required": false,
+      "confidence_threshold": 0.8,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "decimal_places": 2
+      },
+      "bucket_preference": [
+        "amount_like"
+      ],
+      "anchor_override": "total",
+      "spatial_region": "footer"
+    },
+    "Currency": {
+      "type": "currency",
+      "description": "Currency code (ISO 4217)",
+      "required": false,
+      "confidence_threshold": 0.85,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "allowed_values": [
+          "USD",
+          "EUR",
+          "GBP",
+          "JPY",
+          "CAD",
+          "AUD",
+          "CHF",
+          "CNY",
+          "INR",
+          "RUB"
+        ]
+      },
+      "examples": [
+        "USD",
+        "EUR",
+        "GBP"
+      ],
+      "computed": true,
+      "computed_from": [
+        "TotalAmount",
+        "Subtotal",
+        "TaxAmount"
+      ],
+      "computed_fn": "infer_currency"
+    },
+    "RemittanceAddress": {
+      "type": "address",
+      "description": "Address where payment should be sent",
+      "required": false,
+      "confidence_threshold": 0.75,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 500
+      },
+      "keyword_proximal": false
+    },
+    "BillToAddress": {
+      "type": "address",
+      "description": "Billing address of the customer",
+      "required": false,
+      "confidence_threshold": 0.75,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 500
+      },
+      "keyword_proximal": false
+    },
+    "ShipToAddress": {
+      "type": "address",
+      "description": "Shipping address",
+      "required": false,
+      "confidence_threshold": 0.75,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 500
+      },
+      "keyword_proximal": false
+    },
+    "VendorName": {
+      "type": "text",
+      "description": "Name of the vendor/seller",
+      "required": true,
+      "confidence_threshold": 0.8,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "min_length": 1,
+        "max_length": 200
+      },
+      "bucket_preference": [
+        "name_like"
+      ],
+      "anchor_override": null,
+      "spatial_region": "header",
+      "importance": 0.75,
+      "keyword_proximal": false,
+      "priority_bonus": 0.5,
+      "dataverse_column": "vendor_name"
+    },
+    "VendorAddress": {
+      "type": "address",
+      "description": "Address of the vendor",
+      "required": false,
+      "confidence_threshold": 0.75,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 500
+      },
+      "keyword_proximal": false
+    },
+    "CustomerName": {
+      "type": "text",
+      "description": "Name of the customer/buyer",
+      "required": false,
+      "confidence_threshold": 0.75,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 200
+      },
+      "importance": 0.55,
+      "keyword_proximal": false,
+      "dataverse_column": "customer_name"
+    },
+    "CustomerAccount": {
+      "type": "id",
+      "description": "Customer account number",
+      "required": false,
+      "confidence_threshold": 0.85,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 50
+      },
+      "bucket_preference": [
+        "id_like"
+      ],
+      "importance": 0.45,
+      "dataverse_column": "customer_account"
+    },
+    "PurchaseOrder": {
+      "type": "id",
+      "description": "Purchase order number reference",
+      "required": false,
+      "confidence_threshold": 0.85,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 50
+      },
+      "bucket_preference": [
+        "id_like"
+      ]
+    },
+    "InvoiceReference": {
+      "type": "id",
+      "description": "Reference to related invoice",
+      "required": false,
+      "confidence_threshold": 0.8,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 50
+      },
+      "bucket_preference": [
+        "id_like"
+      ]
+    },
+    "PaymentTerms": {
+      "type": "text",
+      "description": "Payment terms (e.g., Net 30, Due on Receipt)",
+      "required": false,
+      "confidence_threshold": 0.75,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 100
+      },
+      "examples": [
+        "Net 30",
+        "Due on Receipt",
+        "2/10 Net 30"
+      ]
+    },
+    "BankAccount": {
+      "type": "id",
+      "description": "Bank account number for payment",
+      "required": false,
+      "confidence_threshold": 0.95,
+      "sensitive": true,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "min_length": 4,
+        "max_length": 34
+      },
+      "bucket_preference": [
+        "id_like"
+      ]
+    },
+    "RoutingNumber": {
+      "type": "id",
+      "description": "Bank routing/ABA number",
+      "required": false,
+      "confidence_threshold": 0.95,
+      "sensitive": true,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "pattern": "^[0-9]{9}$"
+      },
+      "bucket_preference": [
+        "id_like"
+      ]
+    },
+    "SWIFTCode": {
+      "type": "id",
+      "description": "SWIFT/BIC code for international transfers",
+      "required": false,
+      "confidence_threshold": 0.9,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "pattern": "^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$"
+      },
+      "bucket_preference": [
+        "id_like"
+      ]
+    },
+    "BillingReference": {
+      "type": "id",
+      "description": "Composite billing reference (account number + date), used by billing systems like UNIBILL",
+      "required": false,
+      "confidence_threshold": 0.9,
+      "introduced_in": "1.3.0",
+      "computed": true,
+      "computed_from": [
+        "CustomerAccount",
+        "InvoiceDate"
+      ],
+      "computed_fn": "concat_strip",
+      "validation": {
+        "max_length": 50
+      },
+      "bucket_preference": [
+        "id_like"
+      ],
+      "keyword_proximal": false
+    },
+    "LineItemDescription": {
+      "type": "text",
+      "description": "Description of line item (for line item extraction)",
+      "required": false,
+      "confidence_threshold": 0.7,
+      "line_item_field": true,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 500
+      }
+    },
+    "LineItemQuantity": {
+      "type": "number",
+      "description": "Quantity of line item",
+      "required": false,
+      "confidence_threshold": 0.8,
+      "line_item_field": true,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "min_value": 0
+      }
+    },
+    "LineItemUnitPrice": {
+      "type": "amount",
+      "description": "Unit price of line item",
+      "required": false,
+      "confidence_threshold": 0.8,
+      "line_item_field": true,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "min_value": 0,
+        "decimal_places": 2
+      },
+      "bucket_preference": [
+        "amount_like"
+      ]
+    },
+    "LineItemTotal": {
+      "type": "amount",
+      "description": "Total price for line item",
+      "required": false,
+      "confidence_threshold": 0.8,
+      "line_item_field": true,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "min_value": 0,
+        "decimal_places": 2
+      },
+      "bucket_preference": [
+        "amount_like"
+      ]
+    },
+    "Notes": {
+      "type": "text",
+      "description": "Additional notes or comments",
+      "required": false,
+      "confidence_threshold": 0.6,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 2000
+      }
+    },
+    "TaxID": {
+      "type": "id",
+      "description": "Tax identification number (EIN, VAT, etc.)",
+      "required": false,
+      "confidence_threshold": 0.85,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 30
+      },
+      "bucket_preference": [
+        "id_like"
+      ]
+    },
+    "ContactName": {
+      "type": "text",
+      "description": "Contact person name",
+      "required": false,
+      "confidence_threshold": 0.7,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 100
+      }
+    },
+    "ContactEmail": {
+      "type": "email",
+      "description": "Contact email address",
+      "required": false,
+      "confidence_threshold": 0.85,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+      }
+    },
+    "ContactPhone": {
+      "type": "phone",
+      "description": "Contact phone number",
+      "required": false,
+      "confidence_threshold": 0.8,
+      "introduced_in": "1.0.0",
+      "validation": {
+        "max_length": 30
+      }
+    }
+  },
+  "cross_field_rules": [
+    {
+      "type": "lte",
+      "field": "Subtotal",
+      "reference": "TotalAmount",
+      "tolerance": 0.01,
+      "severity": "warning",
+      "message_template": "{field} ({field_val:.2f}) exceeds {reference} ({ref_val:.2f})"
+    },
+    {
+      "type": "lte",
+      "field": "TaxAmount",
+      "reference": "TotalAmount",
+      "tolerance": 0.0,
+      "severity": "warning",
+      "message_template": "{field} ({field_val:.2f}) exceeds {reference} ({ref_val:.2f})"
+    },
+    {
+      "type": "date_gte",
+      "field": "DueDate",
+      "reference": "InvoiceDate",
+      "severity": "warning",
+      "message_template": "{field} ({field_val}) is before {reference} ({ref_val})"
+    },
+    {
+      "type": "date_max_gap_days",
+      "field": "DueDate",
+      "reference": "InvoiceDate",
+      "max_days": 90,
+      "severity": "warning",
+      "message_template": "{field} is {days} days after {reference} (typically 21-30)"
+    }
+  ],
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "document_id",
+      "pages",
+      "contract_version",
+      "feature_version",
+      "decoder_version",
+      "model_version",
+      "calibration_version",
+      "fields",
+      "line_items",
+      "extensions",
+      "experimental"
+    ],
+    "properties": {
+      "document_id": {
+        "type": "string",
+        "description": "Content-addressed document identifier (fs:{sha256[:16]})"
+      },
+      "pages": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Number of pages in the document"
+      },
+      "contract_version": {
+        "type": "string",
+        "description": "Schema version with fingerprint (semver+fingerprint)"
+      },
+      "feature_version": {
+        "type": "string",
+        "description": "Feature extraction version"
+      },
+      "decoder_version": {
+        "type": "string",
+        "description": "Decoder algorithm version"
+      },
+      "model_version": {
+        "type": "string",
+        "description": "ML model version or 'unscored-baseline'"
+      },
+      "calibration_version": {
+        "type": "string",
+        "description": "Confidence calibration version"
+      },
+      "fields": {
+        "type": "object",
+        "description": "Extracted field values",
+        "additionalProperties": {
+          "type": "object",
+          "required": [
+            "value",
+            "confidence",
+            "status",
+            "provenance",
+            "raw_text"
+          ],
+          "properties": {
+            "value": {
+              "description": "Normalized field value (null if not extracted)"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Confidence score [0, 1]"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "PREDICTED",
+                "ABSTAIN",
+                "MISSING"
+              ],
+              "description": "Extraction status"
+            },
+            "provenance": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "description": "Source location in document",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "bbox": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "token_span": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "raw_text": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Original text before normalization"
+            }
+          }
+        }
+      },
+      "line_items": {
+        "type": "array",
+        "description": "Extracted line items (currently empty, future implementation)",
+        "items": {
+          "type": "object"
+        }
+      },
+      "extensions": {
+        "type": "object",
+        "description": "Extension data including routing metadata",
+        "properties": {
+          "routing": {
+            "type": "object",
+            "properties": {
+              "needs_review": {
+                "type": "boolean"
+              },
+              "review_reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "predicted_count": {
+                "type": "integer"
+              },
+              "abstain_count": {
+                "type": "integer"
+              },
+              "missing_count": {
+                "type": "integer"
+              },
+              "min_confidence": {
+                "type": "number"
+              },
+              "avg_confidence": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      "experimental": {
+        "type": "object",
+        "description": "Experimental features and data"
+      }
+    }
+  }
+}

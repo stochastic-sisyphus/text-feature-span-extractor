@@ -1,0 +1,58 @@
+# Production overrides for docker-compose.yml
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Changes:
+# - Enables observability stack by default (otel-collector, tempo, loki, prometheus)
+# - Adds restart: always for core services
+# - Configures nginx for optional HTTPS/TLS
+
+services:
+  # ==========================================================================
+  # Core Services: restart: always in production
+  # ==========================================================================
+  invoicex:
+    restart: always
+
+  api:
+    restart: always
+    environment:
+      # MLflow integration
+      INVOICEX_USE_MLFLOW: ${INVOICEX_USE_MLFLOW:-true}
+      INVOICEX_MLFLOW_TRACKING_URI: ${INVOICEX_MLFLOW_TRACKING_URI:-http://mlflow:5000}
+      # Public URL for webhooks and absolute links — must be set in production
+      INVOICEX_PUBLIC_URL: ${INVOICEX_PUBLIC_URL:?must be set}
+
+  postgres:
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+      - ./backups:/backups:rw
+
+  mlflow:
+    restart: always
+
+  grafana:
+    restart: always
+
+  nginx:
+    restart: always
+
+  # ==========================================================================
+  # Observability Stack: Remove profiles so they start by default
+  # ==========================================================================
+  otel-collector:
+    profiles: []
+    restart: always
+
+  tempo:
+    profiles: []
+    restart: always
+
+  loki:
+    profiles: []
+    restart: always
+
+  prometheus:
+    profiles: []
+    restart: always

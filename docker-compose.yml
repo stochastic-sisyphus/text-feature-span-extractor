@@ -1,0 +1,727 @@
+# Docker Compose configuration for invoice extraction pipeline
+# Includes MLflow model registry, Grafana UI, and optional LGTM observability stack
+#
+# Usage:
+#   docker compose up -d                          # Start core + MLflow + Grafana + nginx
+#   docker compose --profile observability up -d  # Include LGTM tracing/metrics stack
+#   docker compose --profile dev up -d            # Include dev container
+#   docker compose run process-batch              # Run batch extraction
+#   docker compose down                           # Stop services
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ==========================================================================
+  # Main extraction service
+  # ==========================================================================
+  invoicex:
+    build:
+      context: .
+      target: production
+    image: invoicex:latest
+    container_name: invoicex
+
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["invoicex orchestrator --seed-folder /input --watch"]
+
+    environment:
+      # Logging
+      INVOICEX_LOG_LEVEL: ${INVOICEX_LOG_LEVEL:-INFO}
+      INVOICEX_LOG_FORMAT: ${INVOICEX_LOG_FORMAT:-json}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+
+      # Data directory (absolute path inside container)
+      INVOICEX_DATA_DIR: /data
+
+      # Model configuration
+      MODEL_ID: ${MODEL_ID:-unscored-baseline}
+
+      # Confidence thresholds
+      INVOICEX_CONFIDENCE_AUTO_APPROVE: ${INVOICEX_CONFIDENCE_AUTO_APPROVE:-0.85}
+      INVOICEX_NONE_BIAS: ${INVOICEX_NONE_BIAS:-0.05}
+
+      # Connector mode (local, azure)
+      INVOICEX_CONNECTOR_MODE: ${INVOICEX_CONNECTOR_MODE:-local}
+
+      # Pipeline tuning
+      INVOICEX_USE_RANKER: ${INVOICEX_USE_RANKER:-}
+      INVOICEX_ML_SCORE_WEIGHT: ${INVOICEX_ML_SCORE_WEIGHT:-}
+      INVOICEX_TRACE_CANDIDATES: ${INVOICEX_TRACE_CANDIDATES:-}
+      INVOICEX_EARLY_PAGE_BOOST: ${INVOICEX_EARLY_PAGE_BOOST:-}
+      INVOICEX_EARLY_PAGE_MAX_IDX: ${INVOICEX_EARLY_PAGE_MAX_IDX:-}
+      INVOICEX_PRUNING_THRESHOLD: ${INVOICEX_PRUNING_THRESHOLD:-}
+      INVOICEX_PRUNING_MAX_CANDIDATES: ${INVOICEX_PRUNING_MAX_CANDIDATES:-}
+      INVOICEX_PRUNING_MIN_TRIGGER: ${INVOICEX_PRUNING_MIN_TRIGGER:-}
+
+      # Orchestrator
+      INVOICEX_ORCHESTRATOR_MAX_RETRIES: ${INVOICEX_ORCHESTRATOR_MAX_RETRIES:-}
+      INVOICEX_ORCHESTRATOR_RETRY_BASE_SECONDS: ${INVOICEX_ORCHESTRATOR_RETRY_BASE_SECONDS:-}
+      INVOICEX_ORCHESTRATOR_RETRY_MULTIPLIER: ${INVOICEX_ORCHESTRATOR_RETRY_MULTIPLIER:-}
+      INVOICEX_ORCHESTRATOR_WATCH_INTERVAL: ${INVOICEX_ORCHESTRATOR_WATCH_INTERVAL:-}
+      INVOICEX_ORCHESTRATOR_SEED_FOLDER: ${INVOICEX_ORCHESTRATOR_SEED_FOLDER:-}
+
+      # MLflow integration
+      INVOICEX_USE_MLFLOW: ${INVOICEX_USE_MLFLOW:-true}
+      INVOICEX_MLFLOW_TRACKING_URI: ${INVOICEX_MLFLOW_TRACKING_URI:-http://mlflow:5000}
+
+      # Backend switches (local ↔ Azure)
+      INVOICEX_STORAGE_BACKEND: ${INVOICEX_STORAGE_BACKEND:-local}
+      INVOICEX_DOCUMENT_SOURCE: ${INVOICEX_DOCUMENT_SOURCE:-local}
+      INVOICEX_OUTPUT_BACKEND: ${INVOICEX_OUTPUT_BACKEND:-local}
+
+      # Azure authentication (service principal or managed identity)
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_MANAGED_IDENTITY_CLIENT_ID: ${AZURE_MANAGED_IDENTITY_CLIENT_ID:-}
+
+      # Azure Blob Storage (when STORAGE_BACKEND=blob)
+      AZURE_STORAGE_ACCOUNT_NAME: ${AZURE_STORAGE_ACCOUNT_NAME:-}
+      AZURE_STORAGE_CONTAINER_NAME: ${AZURE_STORAGE_CONTAINER_NAME:-invoicex}
+      AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_CONNECTION_STRING:-}
+
+      # SharePoint (when DOCUMENT_SOURCE=sharepoint)
+      SHAREPOINT_SITE_ID: ${SHAREPOINT_SITE_ID:-}
+      SHAREPOINT_DRIVE_ID: ${SHAREPOINT_DRIVE_ID:-}
+      SHAREPOINT_FOLDER_PATH: ${SHAREPOINT_FOLDER_PATH:-Invoices/Inbox}
+      SHAREPOINT_CLIENT_ID: ${SHAREPOINT_CLIENT_ID:-}
+      SHAREPOINT_CLIENT_SECRET: ${SHAREPOINT_CLIENT_SECRET:-}
+
+      # Dataverse (when OUTPUT_BACKEND=dataverse)
+      DATAVERSE_ENVIRONMENT_URL: ${DATAVERSE_ENVIRONMENT_URL:-}
+      DATAVERSE_CLIENT_ID: ${DATAVERSE_CLIENT_ID:-}
+      DATAVERSE_CLIENT_SECRET: ${DATAVERSE_CLIENT_SECRET:-}
+      DATAVERSE_STAGING_TABLE: ${DATAVERSE_STAGING_TABLE:-new_tem}
+      DATAVERSE_PRODUCTION_TABLE: ${DATAVERSE_PRODUCTION_TABLE:-tem}
+      INVOICEX_DATAVERSE_WRITE_ENABLED: ${INVOICEX_DATAVERSE_WRITE_ENABLED:-false}
+
+      # OTLP telemetry (Grafana stack)
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: invoicex
+      OTEL_RESOURCE_ATTRIBUTES: "service.version=${INVOICEX_VERSION:-1.0.0},deployment.environment=${ENVIRONMENT:-development}"
+
+    volumes:
+      - ${INPUT_PATH:-./seed_pdfs}:/input:ro
+      - ${DATA_PATH:-./data}:/data:rw
+      - ${MODEL_PATH:-./data/models}:/models:ro
+      - ./schema:/app/schema:ro
+      - mlflow_artifacts:/mlflow-artifacts:rw
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "from invoices.health import liveness_probe; exit(0 if liveness_probe() else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 512M
+          cpus: "0.25"
+
+    logging: *default-logging
+
+  # ==========================================================================
+  # API Service (HTTP server for webhook and REST endpoints)
+  # ==========================================================================
+  api:
+    build:
+      context: .
+      target: production
+    image: invoicex:latest
+    container_name: invoicex-api
+
+    entrypoint: ["uvicorn"]
+    command: ["invoices.api:get_app", "--factory", "--host", "0.0.0.0", "--port", "8080", "--timeout-graceful-shutdown", "30"]
+
+    # Port exposed internally only - nginx proxies to this
+    expose:
+      - "8080"
+
+    environment:
+      # Environment mode
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+
+      # Logging
+      INVOICEX_LOG_LEVEL: ${INVOICEX_LOG_LEVEL:-INFO}
+      INVOICEX_LOG_FORMAT: ${INVOICEX_LOG_FORMAT:-json}
+
+      # Data directory (absolute path inside container)
+      INVOICEX_DATA_DIR: /data
+
+      # Connector mode (local, azure, sharepoint)
+      INVOICEX_CONNECTOR_MODE: ${INVOICEX_CONNECTOR_MODE:-local}
+
+      # Model configuration
+      MODEL_ID: ${MODEL_ID:-unscored-baseline}
+
+      # Confidence thresholds
+      INVOICEX_CONFIDENCE_AUTO_APPROVE: ${INVOICEX_CONFIDENCE_AUTO_APPROVE:-0.85}
+      INVOICEX_NONE_BIAS: ${INVOICEX_NONE_BIAS:-0.05}
+
+      # MLflow integration
+      INVOICEX_USE_MLFLOW: ${INVOICEX_USE_MLFLOW:-true}
+      INVOICEX_MLFLOW_TRACKING_URI: ${INVOICEX_MLFLOW_TRACKING_URI:-http://mlflow:5000}
+
+      # OTLP telemetry (Grafana stack)
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: invoicex-api
+      OTEL_RESOURCE_ATTRIBUTES: "service.version=${INVOICEX_VERSION:-1.0.0},deployment.environment=${ENVIRONMENT:-development}"
+
+      # Backend switches (local ↔ Azure)
+      INVOICEX_STORAGE_BACKEND: ${INVOICEX_STORAGE_BACKEND:-local}
+      INVOICEX_DOCUMENT_SOURCE: ${INVOICEX_DOCUMENT_SOURCE:-local}
+      INVOICEX_OUTPUT_BACKEND: ${INVOICEX_OUTPUT_BACKEND:-local}
+
+      # Azure authentication (service principal or managed identity)
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_MANAGED_IDENTITY_CLIENT_ID: ${AZURE_MANAGED_IDENTITY_CLIENT_ID:-}
+
+      # Azure Blob Storage (when STORAGE_BACKEND=blob)
+      AZURE_STORAGE_ACCOUNT_NAME: ${AZURE_STORAGE_ACCOUNT_NAME:-}
+      AZURE_STORAGE_CONTAINER_NAME: ${AZURE_STORAGE_CONTAINER_NAME:-invoicex}
+      AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_CONNECTION_STRING:-}
+
+      # SharePoint (when DOCUMENT_SOURCE=sharepoint)
+      SHAREPOINT_SITE_ID: ${SHAREPOINT_SITE_ID:-}
+      SHAREPOINT_DRIVE_ID: ${SHAREPOINT_DRIVE_ID:-}
+      SHAREPOINT_FOLDER_PATH: ${SHAREPOINT_FOLDER_PATH:-Invoices/Inbox}
+      SHAREPOINT_CLIENT_ID: ${SHAREPOINT_CLIENT_ID:-}
+      SHAREPOINT_CLIENT_SECRET: ${SHAREPOINT_CLIENT_SECRET:-}
+
+      # Dataverse (when OUTPUT_BACKEND=dataverse)
+      DATAVERSE_ENVIRONMENT_URL: ${DATAVERSE_ENVIRONMENT_URL:-}
+      DATAVERSE_CLIENT_ID: ${DATAVERSE_CLIENT_ID:-}
+      DATAVERSE_CLIENT_SECRET: ${DATAVERSE_CLIENT_SECRET:-}
+      DATAVERSE_STAGING_TABLE: ${DATAVERSE_STAGING_TABLE:-new_tem}
+      DATAVERSE_PRODUCTION_TABLE: ${DATAVERSE_PRODUCTION_TABLE:-tem}
+      INVOICEX_DATAVERSE_WRITE_ENABLED: ${INVOICEX_DATAVERSE_WRITE_ENABLED:-false}
+
+      # API authentication
+      # PRODUCTION: Set INVOICEX_API_KEY in .env (required for production, empty default for dev only)
+      INVOICEX_API_KEY: ${INVOICEX_API_KEY:-}
+      INVOICEX_PUBLIC_URL: ${INVOICEX_PUBLIC_URL:-http://localhost}
+      INVOICEX_CORS_ORIGINS: ${INVOICEX_CORS_ORIGINS:-http://localhost:3000,http://localhost}
+
+    volumes:
+      - ${DATA_PATH:-./data}:/data:rw
+      - ${INPUT_PATH:-./seed_pdfs}:/input:ro
+      - ${MODEL_PATH:-./data/models}:/models:ro
+      - ./schema:/app/schema:ro
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    depends_on:
+      invoicex:
+        condition: service_healthy
+
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+          cpus: "0.25"
+
+    logging: *default-logging
+
+  # ==========================================================================
+  # PostgreSQL (shared backend for MLflow + Grafana)
+  # ==========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: invoicex-postgres
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-invoicex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: mlflow
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+
+    # Port exposed internally only - no external access needed
+    expose:
+      - "5432"
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-invoicex}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+
+    logging: *default-logging
+
+  # ==========================================================================
+  # MLflow (model registry + experiment tracking)
+  # ==========================================================================
+  mlflow:
+    build:
+      context: ./infra/mlflow
+      dockerfile: Dockerfile
+    image: invoicex-mlflow:latest
+    container_name: invoicex-mlflow
+
+    environment:
+      # Azure credentials for blob artifact store (wasbs://)
+      # Local dev: service principal + secret (from .env)
+      # Azure: managed identity (DefaultAzureCredential, no secrets needed)
+      AZURE_STORAGE_ACCOUNT_NAME: ${AZURE_STORAGE_ACCOUNT_NAME:-}
+      AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_CONNECTION_STRING:-}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_MANAGED_IDENTITY_CLIENT_ID: ${AZURE_MANAGED_IDENTITY_CLIENT_ID:-}
+      INVOICEX_MLFLOW_EXPERIMENT_NAME: ${INVOICEX_MLFLOW_EXPERIMENT_NAME:-invoicex}
+
+    command:
+      - mlflow
+      - server
+      - --backend-store-uri
+      - postgresql://${POSTGRES_USER:-invoicex}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/mlflow
+      - --default-artifact-root
+      - ${MLFLOW_ARTIFACT_ROOT:-/mlflow-artifacts}
+      - --serve-artifacts
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "5000"
+      - --static-prefix
+      - /mlflow
+
+    volumes:
+      - mlflow_artifacts:/mlflow-artifacts
+
+    # Port exposed internally only - nginx proxies /mlflow/
+    expose:
+      - "5000"
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+    logging: *default-logging
+
+  # ==========================================================================
+  # nginx (reverse proxy)
+  # ==========================================================================
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: invoicex-nginx
+
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/.htpasswd:/etc/nginx/.htpasswd:ro
+
+    ports:
+      - "80:80"
+
+    depends_on:
+      api:
+        condition: service_healthy
+      grafana:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:80/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+    logging: *default-logging
+
+  # ==========================================================================
+  # GRAFANA LGTM STACK
+  # ==========================================================================
+
+  # OpenTelemetry Collector - routes telemetry to Grafana backends
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    container_name: otel-collector
+    profiles:
+      - observability
+
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./infra/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+
+    # Ports exposed internally only - services send telemetry over internal network
+    expose:
+      - "4317"   # OTLP gRPC
+      - "4318"   # OTLP HTTP
+
+    depends_on:
+      - tempo
+      - loki
+      - prometheus
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 128M
+
+    logging: *default-logging
+
+  # Grafana - Visualization + Active Learning UI
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: grafana
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    environment:
+      # PRODUCTION: Set GRAFANA_ADMIN_PASSWORD in .env (default admin/admin is dev-only)
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: "invoicex-labeling-app"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "true"
+      GF_DEFAULT_APP_MODE: "production"
+      # Postgres backend (replaces embedded SQLite)
+      GF_DATABASE_TYPE: postgres
+      GF_DATABASE_HOST: postgres:5432
+      GF_DATABASE_NAME: grafana
+      GF_DATABASE_USER: ${POSTGRES_USER:-invoicex}
+      GF_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      GF_DATABASE_SSL_MODE: disable
+      # Root URL for nginx reverse proxy
+      GF_SERVER_ROOT_URL: "${INVOICEX_PUBLIC_URL:-http://localhost}/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/home.json
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./grafana-plugins/invoicex-labeling-app/dist:/var/lib/grafana/plugins/invoicex-labeling-app:ro
+
+    # Port exposed internally only - nginx proxies /
+    expose:
+      - "3000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+    logging: *default-logging
+
+  # Tempo - Distributed tracing
+  tempo:
+    image: grafana/tempo:2.3.1
+    container_name: tempo
+    profiles:
+      - observability
+
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./infra/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/tmp/tempo
+
+    # Port exposed internally only
+    expose:
+      - "3200"
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3200/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+    logging: *default-logging
+
+  # Loki - Log aggregation
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: loki
+    profiles:
+      - observability
+
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./infra/loki.yaml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+
+    # Port exposed internally only
+    expose:
+      - "3100"
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3100/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+    logging: *default-logging
+
+  # Prometheus - Metrics
+  prometheus:
+    image: prom/prometheus:v2.48.1
+    container_name: prometheus
+    profiles:
+      - observability
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-remote-write-receiver"
+
+    volumes:
+      - ./infra/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+    # Port exposed internally only
+    expose:
+      - "9090"
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+    logging: *default-logging
+
+  # ==========================================================================
+  # Task runners
+  # ==========================================================================
+  process-batch:
+    build:
+      context: .
+      target: production
+    image: invoicex:latest
+    profiles:
+      - task
+
+    environment:
+      # Logging
+      INVOICEX_LOG_LEVEL: ${INVOICEX_LOG_LEVEL:-INFO}
+      INVOICEX_LOG_FORMAT: ${INVOICEX_LOG_FORMAT:-json}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+
+      # Data directory (absolute path inside container)
+      INVOICEX_DATA_DIR: /data
+
+      # Model configuration
+      MODEL_ID: ${MODEL_ID:-unscored-baseline}
+
+      # Confidence thresholds
+      INVOICEX_CONFIDENCE_AUTO_APPROVE: ${INVOICEX_CONFIDENCE_AUTO_APPROVE:-0.85}
+      INVOICEX_NONE_BIAS: ${INVOICEX_NONE_BIAS:-0.05}
+
+      # Connector mode (local, azure)
+      INVOICEX_CONNECTOR_MODE: ${INVOICEX_CONNECTOR_MODE:-local}
+
+      # Pipeline tuning
+      INVOICEX_USE_RANKER: ${INVOICEX_USE_RANKER:-}
+      INVOICEX_ML_SCORE_WEIGHT: ${INVOICEX_ML_SCORE_WEIGHT:-}
+      INVOICEX_TRACE_CANDIDATES: ${INVOICEX_TRACE_CANDIDATES:-}
+      INVOICEX_EARLY_PAGE_BOOST: ${INVOICEX_EARLY_PAGE_BOOST:-}
+      INVOICEX_EARLY_PAGE_MAX_IDX: ${INVOICEX_EARLY_PAGE_MAX_IDX:-}
+      INVOICEX_PRUNING_THRESHOLD: ${INVOICEX_PRUNING_THRESHOLD:-}
+      INVOICEX_PRUNING_MAX_CANDIDATES: ${INVOICEX_PRUNING_MAX_CANDIDATES:-}
+      INVOICEX_PRUNING_MIN_TRIGGER: ${INVOICEX_PRUNING_MIN_TRIGGER:-}
+
+      # Orchestrator
+      INVOICEX_ORCHESTRATOR_MAX_RETRIES: ${INVOICEX_ORCHESTRATOR_MAX_RETRIES:-}
+      INVOICEX_ORCHESTRATOR_RETRY_BASE_SECONDS: ${INVOICEX_ORCHESTRATOR_RETRY_BASE_SECONDS:-}
+      INVOICEX_ORCHESTRATOR_RETRY_MULTIPLIER: ${INVOICEX_ORCHESTRATOR_RETRY_MULTIPLIER:-}
+      INVOICEX_ORCHESTRATOR_WATCH_INTERVAL: ${INVOICEX_ORCHESTRATOR_WATCH_INTERVAL:-}
+      INVOICEX_ORCHESTRATOR_SEED_FOLDER: ${INVOICEX_ORCHESTRATOR_SEED_FOLDER:-}
+
+      # OTLP telemetry (Grafana stack)
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: invoicex-batch
+
+      # Backend switches (local ↔ Azure)
+      INVOICEX_STORAGE_BACKEND: ${INVOICEX_STORAGE_BACKEND:-local}
+      INVOICEX_DOCUMENT_SOURCE: ${INVOICEX_DOCUMENT_SOURCE:-local}
+      INVOICEX_OUTPUT_BACKEND: ${INVOICEX_OUTPUT_BACKEND:-local}
+
+      # Azure authentication (service principal or managed identity)
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_MANAGED_IDENTITY_CLIENT_ID: ${AZURE_MANAGED_IDENTITY_CLIENT_ID:-}
+
+      # Azure Blob Storage (when STORAGE_BACKEND=blob)
+      AZURE_STORAGE_ACCOUNT_NAME: ${AZURE_STORAGE_ACCOUNT_NAME:-}
+      AZURE_STORAGE_CONTAINER_NAME: ${AZURE_STORAGE_CONTAINER_NAME:-invoicex}
+      AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_CONNECTION_STRING:-}
+
+      # SharePoint (when DOCUMENT_SOURCE=sharepoint)
+      SHAREPOINT_SITE_ID: ${SHAREPOINT_SITE_ID:-}
+      SHAREPOINT_DRIVE_ID: ${SHAREPOINT_DRIVE_ID:-}
+      SHAREPOINT_FOLDER_PATH: ${SHAREPOINT_FOLDER_PATH:-Invoices/Inbox}
+      SHAREPOINT_CLIENT_ID: ${SHAREPOINT_CLIENT_ID:-}
+      SHAREPOINT_CLIENT_SECRET: ${SHAREPOINT_CLIENT_SECRET:-}
+
+      # Dataverse (when OUTPUT_BACKEND=dataverse)
+      DATAVERSE_ENVIRONMENT_URL: ${DATAVERSE_ENVIRONMENT_URL:-}
+      DATAVERSE_CLIENT_ID: ${DATAVERSE_CLIENT_ID:-}
+      DATAVERSE_CLIENT_SECRET: ${DATAVERSE_CLIENT_SECRET:-}
+      DATAVERSE_STAGING_TABLE: ${DATAVERSE_STAGING_TABLE:-new_tem}
+      DATAVERSE_PRODUCTION_TABLE: ${DATAVERSE_PRODUCTION_TABLE:-tem}
+      INVOICEX_DATAVERSE_WRITE_ENABLED: ${INVOICEX_DATAVERSE_WRITE_ENABLED:-false}
+
+    volumes:
+      - ${INPUT_PATH:-./seed_pdfs}:/input:ro
+      - ${DATA_PATH:-./data}:/data:rw
+      - ${MODEL_PATH:-./data/models}:/models:ro
+      - ./schema:/app/schema:ro
+
+    entrypoint: ["invoicex"]
+    command: ["pipeline", "--seed-folder", "/input"]
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  mlflow_artifacts:
+  grafana_data:
+  tempo_data:
+  loki_data:
+  prometheus_data:
+
+networks:
+  invoicex-network:
+    name: invoicex-network
