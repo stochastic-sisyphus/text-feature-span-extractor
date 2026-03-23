@@ -1,7 +1,6 @@
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![pdfplumber](https://img.shields.io/badge/PDF-text--layer--only-orange)
-![No OCR](https://img.shields.io/badge/OCR-none-lightgrey)
 
 # text-feature-span-extractor
 
