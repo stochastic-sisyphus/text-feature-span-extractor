@@ -1,0 +1,17 @@
+flowchart LR
+    sp["SharePoint\nPDFs"]:::io --> worker["worker\n(pgqueuer + pipeline)"]:::accent
+    worker --> docs["docs\n(JSONB)"]:::node
+    worker --> labels["labels\n(JSONB)"]:::node
+    worker --> evals["doc_evaluations\n(JSONB)"]:::node
+    worker --> schema["contract_schema\n(JSONB)"]:::node
+    worker --> mlflow["MLflow\n(model artifacts)"]:::node
+    docs -- labels --> retrain["XGBoost Retrain"]:::accent
+    retrain --> mlflow
+    postgrest["PostgREST\nHTTP face"]:::accent --> docs
+    postgrest --> labels
+
+    %% Palette
+    classDef node fill:#40312F,stroke:#51504B,color:#dbd6d1
+    classDef accent fill:#46696B,stroke:#69AAB2,color:#dbd6d1
+    classDef io fill:#2A1B16,stroke:#778C89,color:#dbd6d1
+    classDef decision fill:#5C5A72,stroke:#C6C2D2,color:#dbd6d1

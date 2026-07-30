@@ -1,0 +1,67 @@
+name: VM Probe (manual)
+on:
+  workflow_dispatch: {}
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  probe:
+    name: Read-only VM probe
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: Read-only VM probe
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set +e
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+
+             echo '=== whoami ==='
+             whoami
+
+             echo '=== current swap ==='
+             swapon --show || echo 'no swap'
+             free -h
+
+             echo '=== disk free ==='
+             df -h /
+
+             echo '=== passwordless sudo? ==='
+             sudo -n true 2>&1 && echo 'SUDO: yes' || echo 'SUDO: no'
+
+             echo '=== can write a swapfile location? ==='
+             touch /tmp/.probe_test 2>&1 && rm -f /tmp/.probe_test && echo 'tmp writable' || echo 'tmp not writable'
+
+             echo '=== docker compose memory limits in effect ==='
+             \$COMPOSE config 2>/dev/null | grep -iE 'mem_limit|memory|oom|worker:|postgres:' | head -40 || echo 'config read failed'
+
+             echo '=== per-container memory usage now ==='
+             docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}' || echo 'stats failed'
+
+             echo '=== worker die/kill events (last ~6min — shows the signal) ==='
+             timeout 8 docker events --since 6m --filter container=invoicex-worker --format '{{.Time}} {{.Action}} {{json .Actor.Attributes}}' 2>&1 | tail -40 || echo 'no events / timed out'
+
+             echo '=== deploy-user crontab ==='
+             crontab -l 2>&1 | grep -v '^#' | head -30 || echo 'none'
+
+             echo '=== system cron (world-readable) ==='
+             cat /etc/crontab 2>&1 | grep -v '^#' | head -20
+             ls -la /etc/cron.d/ 2>&1 | head; for f in /etc/cron.d/*; do echo \"-- \$f --\"; grep -v '^#' \"\$f\" 2>/dev/null | head -10; done
+
+             echo '=== systemd timers ==='
+             systemctl list-timers --all --no-pager 2>&1 | head -25 || echo 'no systemctl access'
+
+             echo '=== processes that touch docker/compose/restart (signal source?) ==='
+             ps -eo pid,etimes,cmd 2>&1 | grep -iE 'docker compose|docker-compose|docker (restart|stop|kill|up)|invoicex' | grep -v grep | head -20
+
+             echo '=== PROBE DONE ==='"
+          rm -f "$RUNNER_TEMP/vm_key"

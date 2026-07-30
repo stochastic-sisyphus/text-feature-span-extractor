@@ -1,0 +1,217 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "text-feature-span-extract"
+version = "0.2.0"
+description = "Deterministic text-layer feature-based span extractor for machine-generated PDF invoices"
+authors = [
+    {name = "Vanessa Beck", email = "102266523+stochastic-sisyphus@users.noreply.github.com"}
+]
+readme = "README.md"
+license = {text = "Elastic License 2.0"}
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "pdfplumber>=0.9.0",
+    "numpy>=1.24.0,<3.0",
+    "python-dateutil>=2.8.0",
+    "scipy>=1.11.0",
+    "scikit-learn>=1.4",
+    "xgboost>=2.1",  # 2.1+ accepts polars DataFrames natively; <2.1 upper bound removed
+    "pydantic>=2.0.0,<3.0",
+    "pydantic-settings>=2.0.0",
+    # HTTP client for Azure SDK
+    "httpx>=0.25.0",
+    "PyJWT>=2.12.0",  # CVE-2026-32597 fixed in 2.12.0 (transitive via mcp)
+    # Metrics
+    "prometheus-client>=0.19.0",
+    # DataFrame validation
+    "pandera>=0.20.0",
+    # Polars — lazy frame view chain (Phase 0 wave B+)
+    "polars>=1.0",
+    # asyncpg — pgqueuer native driver (queue.py)
+    "asyncpg>=0.29.0",
+    # Fuzzy string matching — vendor corpus prior (T11)
+    "rapidfuzz~=3.9",
+    # NLP substrate — PhraseMatcher, EntityRuler, token attributes (Wave G)
+    "spacy>=3.7",
+    # ── Security pins for transitive dependencies ─────────────
+    # These are not direct deps but need minimum versions to clear pip-audit.
+    "aiohttp>=3.13.4",     # CVE-2026-34513..34525 (10 CVEs)
+    "cryptography>=46.0.7",  # CVE-2026-34073, CVE-2026-39892
+    "pygments>=2.20.0",      # CVE-2026-4539
+    "requests>=2.33.0",      # CVE-2026-25645
+    "pillow>=12.2.0",        # CVE-2026-40192 (transitive via pdfplumber)
+    "urllib3>=2.7.0",        # CVE-2026-44431 + CVE-2026-44432 (transitive via mlflow)
+    "idna>=3.15",            # CVE-2026-45409 (transitive via anyio/httpx/starlette)
+    "pyarrow>=23.0.1",       # PYSEC-2026-113 (transitive via mlflow)
+    "starlette>=1.0.1",      # PYSEC-2026-161 (transitive via mlflow/fastapi)
+    "orjson>=3.10,<4",      # fast JSON serializer for structlog log emission
+    "structlog>=24.0",      # structured logging (logging.py)
+    "opentelemetry-api>=1.25", # OTel span injection in log records (logging.py)
+    "pgqueuer==1.0.2",     # asyncpg-native job queue. Exact pin: schema is inlined in init.sql, must match library version exactly.
+    "tenacity>=9.0,<10",    # retry-and-degrade at SharePoint boundary
+    "mlflow>=3.1,<4",      # model bundle registry — train/reload handlers (Wave P)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.3",  # CVE-2025-71176
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.23.0",
+    "mypy>=1.5.0",
+    "ruff>=0.1.0",
+    "bandit>=1.7.0",
+    "pip-audit>=2.7.0",
+    "hypothesis>=6.152.0",
+    "vulture>=2.16",
+    "deptry>=0.25.1",
+    "pytest-randomly>=4.1.0",
+    "libcst>=1.5.0",
+]
+azure = [
+    # Azure SDK for SharePoint (Graph API), Dataverse, and Blob Storage
+    "azure-identity>=1.16.1",  # CVE-2024-35255 fixed in 1.16.1
+    "azure-storage-blob>=12.19.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv]
+# Constrain pip to >=26.1 so uv sync never resolves back to 26.0.1 (CVE-2026-6357).
+# constraint-dependencies does not install pip directly; it only restricts the version
+# when pip is pulled in as a transitive or build dep.
+constraint-dependencies = ["pip>=26.1"]
+
+[tool.mypy]
+python_version = "3.11"
+plugins = ["pydantic.mypy"]
+cache_dir = "/dev/null"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "pyarrow",
+    "pyarrow.*",
+"pydantic_settings",
+    "pydantic_settings.*",
+    "pandera",
+    "pandera.*",
+    "asyncpg",
+    "azure.core.credentials_async",
+    "sklearn.*",
+    "scipy",
+    "scipy.*",
+    # Optional LiLT extra (lazy-imported; not in the serving image)
+    "torch",
+    "torch.*",
+    "transformers",
+    "transformers.*",
+    "azure.identity.aio",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+cache_dir = "/dev/null"
+addopts = "--randomly-seed=last"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests requiring live Azure credentials (skipped by default)",
+]
+
+[tool.vulture]
+paths = ["src"]
+min_confidence = 80
+sort_by_size = true
+make_whitelist = false
+
+[tool.deptry]
+extend_exclude = ["scripts", "tests", "dev-docs", "grafana-plugins", "dist", "build"]
+
+[tool.deptry.package_module_name_map]
+# Azure SDK uses namespace packages: azure-identity → azure.identity etc.
+"azure-identity" = "azure"
+"azure-storage-blob" = "azure"
+
+[tool.deptry.per_rule_ignores]
+# DEP002: packages that are runtime deps but not imported in src/ directly —
+# either optional extras, CLI tools invoked by subprocess, or security pins.
+DEP002 = [
+    # Optional extras — only installed when [azure] extra is used
+    "azure-identity", "azure-storage-blob",
+    # Security-only transitive pins — never imported directly
+    "aiohttp", "cryptography", "idna", "pygments", "pyarrow", "requests", "pillow", "PyJWT", "starlette", "urllib3",
+    # Dev tools — not imported by src/ (scanned path), intentionally in [dev] extra
+    "pytest", "pytest-cov", "pytest-asyncio", "mypy", "ruff", "bandit",
+    "pip-audit", "hypothesis", "vulture", "deptry", "pytest-randomly", "libcst",
+    # orjson IS imported in src/ but deptry misses dynamic lambda captures
+    "orjson",
+    # mlflow will be imported in Wave P train/reload handlers — lazy import pattern
+    "mlflow",
+]
+# DEP001: azure namespace package — deptry doesn't resolve azure.* sub-packages
+# DEP001: imported but not declared — torch/transformers are lazy-imported inside
+# the optional LiLT decoder path (lilt_decode.py, model_loader._resolve_lilt_bundle)
+# and are NOT runtime deps (installed only in WITH_LILT=1 images). Same lazy-import
+# rationale as the mlflow DEP002 entry.
+DEP001 = ["azure", "torch", "transformers"]
+# DEP003: typing_extensions is a direct dep used in field_def.py
+DEP003 = ["typing_extensions"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+cache-dir = "/dev/null"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "PTH",  # flake8-use-pathlib — enforce pathlib over os.path/open
+    "PERF", # perflint — performance anti-patterns
+    "RET",  # flake8-return — unnecessary return/else patterns
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "E501",  # line too long, handled by ruff format
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+    "B904",  # raise from within except - too noisy
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*" = ["F841", "B007"]  # Allow unused variables in scripts
+
+[[tool.mypy.overrides]]
+# Legacy preserved-domain modules — deferred mypy until Wave F cleanup.
+# pipeline.py imports dropped invoices.dag — those retrain helpers get triaged in Wave F.
+# doc.py has Any-return mypy noise from pre-greenfield code.
+module = ["invoices.pipeline", "invoices.doc"]
+ignore_errors = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true

@@ -1,0 +1,164 @@
+# OpenTelemetry Collector configuration for Grafana Cloud
+# Routes telemetry to Grafana Cloud backends (Prometheus, Loki, Tempo)
+#
+# Required Environment Variables:
+#   GRAFANA_CLOUD_PROMETHEUS_ENDPOINT - Remote write endpoint for metrics
+#   GRAFANA_CLOUD_PROMETHEUS_USER     - Prometheus username (instance ID)
+#   GRAFANA_CLOUD_PROMETHEUS_PASSWORD - Prometheus API key
+#   GRAFANA_CLOUD_LOKI_ENDPOINT       - Loki push endpoint for logs
+#   GRAFANA_CLOUD_LOKI_USER           - Loki username (instance ID)
+#   GRAFANA_CLOUD_LOKI_PASSWORD       - Loki API key
+#   GRAFANA_CLOUD_TEMPO_ENDPOINT      - Tempo OTLP endpoint for traces
+#   GRAFANA_CLOUD_TEMPO_USER          - Tempo username (instance ID)
+#   GRAFANA_CLOUD_TEMPO_PASSWORD      - Tempo API key
+#   DEPLOYMENT_ENVIRONMENT            - Environment name (dev, staging, prod)
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "*"
+
+processors:
+  # Batch processor for efficient export
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+  # Memory limiter to prevent OOM conditions
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # Add resource attributes for better observability
+  resource:
+    attributes:
+      - key: service.namespace
+        value: invoicex
+        action: upsert
+      - key: deployment.environment
+        value: ${env:DEPLOYMENT_ENVIRONMENT}
+        action: upsert
+      - key: cloud.provider
+        value: azure
+        action: upsert
+
+  # Resource detection for cloud metadata
+  resourcedetection:
+    detectors: [env, system]
+    timeout: 5s
+    override: false
+
+  # Transform attributes for Grafana Cloud compatibility
+  attributes:
+    actions:
+      - key: service_name
+        from_attribute: service.name
+        action: upsert
+      - key: service_namespace
+        from_attribute: service.namespace
+        action: upsert
+
+exporters:
+  # Metrics to Grafana Cloud Prometheus
+  prometheusremotewrite:
+    endpoint: ${env:GRAFANA_CLOUD_PROMETHEUS_ENDPOINT}
+    auth:
+      authenticator: basicauth/prometheus
+    resource_to_telemetry_conversion:
+      enabled: true
+    external_labels:
+      environment: ${env:DEPLOYMENT_ENVIRONMENT}
+      service: invoicex
+
+  # Logs to Grafana Cloud Loki
+  loki:
+    endpoint: ${env:GRAFANA_CLOUD_LOKI_ENDPOINT}
+    auth:
+      authenticator: basicauth/loki
+    labels:
+      resource:
+        service.name: "service_name"
+        service.namespace: "service_namespace"
+        deployment.environment: "environment"
+      attributes:
+        level: ""
+        stage: ""
+        document_id: ""
+        error_type: ""
+
+  # Traces to Grafana Cloud Tempo
+  otlp/tempo:
+    endpoint: ${env:GRAFANA_CLOUD_TEMPO_ENDPOINT}
+    auth:
+      authenticator: basicauth/tempo
+    headers:
+      X-Scope-OrgID: ${env:GRAFANA_CLOUD_TEMPO_USER}
+
+  # Debug logging (disable in production)
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+extensions:
+  # Health check endpoint
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: /health
+
+  # Performance profiling (optional)
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+  # Basic auth for Prometheus
+  basicauth/prometheus:
+    client_auth:
+      username: ${env:GRAFANA_CLOUD_PROMETHEUS_USER}
+      password: ${env:GRAFANA_CLOUD_PROMETHEUS_PASSWORD}
+
+  # Basic auth for Loki
+  basicauth/loki:
+    client_auth:
+      username: ${env:GRAFANA_CLOUD_LOKI_USER}
+      password: ${env:GRAFANA_CLOUD_LOKI_PASSWORD}
+
+  # Basic auth for Tempo
+  basicauth/tempo:
+    client_auth:
+      username: ${env:GRAFANA_CLOUD_TEMPO_USER}
+      password: ${env:GRAFANA_CLOUD_TEMPO_PASSWORD}
+
+service:
+  extensions: [health_check, pprof, basicauth/prometheus, basicauth/loki, basicauth/tempo]
+
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, resource, batch]
+      exporters: [otlp/tempo]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, resource, attributes, batch]
+      exporters: [loki]
+
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, resource, batch]
+      exporters: [prometheusremotewrite]
+
+  telemetry:
+    logs:
+      level: info
+      encoding: json
+    metrics:
+      level: detailed
+      address: 0.0.0.0:8888

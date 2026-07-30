@@ -1,0 +1,102 @@
+name: PG Status (manual)
+on:
+  workflow_dispatch: {}
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  status:
+    name: PG Status (manual)
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: PG Status (manual)
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set +e
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+             PSQL=\"\$COMPOSE exec -T postgres psql -U invoicex -d invoicex -At\"
+
+             echo '=== postgres in recovery? ==='
+             \$PSQL -c 'SELECT pg_is_in_recovery()'
+
+             echo '=== table counts ==='
+             \$PSQL -c \"SELECT 'docs', count(*) FROM docs WHERE sha256 != '__sharepoint_delta_state__' UNION ALL SELECT 'labels', count(*) FROM labels UNION ALL SELECT 'doc_evaluations', count(*) FROM doc_evaluations UNION ALL SELECT 'contract_schema', count(*) FROM contract_schema\"
+
+             echo '=== docs with candidates / predictions ==='
+             \$PSQL -c \"SELECT count(*) FILTER (WHERE payload ? 'candidates') AS with_candidates, count(*) FILTER (WHERE payload ? 'predictions') AS with_predictions, count(*) AS total FROM docs WHERE sha256 != '__sharepoint_delta_state__'\"
+
+             echo '=== pgqueuer status counts ==='
+             \$PSQL -c 'SELECT status, count(*) FROM pgqueuer GROUP BY status ORDER BY status'
+
+             echo '=== pgqueuer status x entrypoint (live) ==='
+             \$PSQL -c \"SELECT status, entrypoint, count(*) FROM pgqueuer GROUP BY status, entrypoint ORDER BY status, entrypoint\"
+
+             echo '=== pgqueuer eligibility: execute_after / qmid vs now ==='
+             \$PSQL -c \"SELECT entrypoint, status, count(*) AS n, min(execute_after) AS min_ea, max(execute_after) AS max_ea, count(queue_manager_id) AS qmid_set, now() AS now_ts FROM pgqueuer GROUP BY entrypoint, status ORDER BY entrypoint, status\"
+
+             echo '=== pgq failed (native, worker container) ==='
+             \$COMPOSE exec -T worker python -m pgqueuer failed -n 30 2>&1 | head -40 || true
+
+             echo '=== reextract outcomes (log) ==='
+             \$PSQL -c \"SELECT status, count(*) FROM pgqueuer_log WHERE entrypoint='reextract' GROUP BY status\"
+
+             echo '=== label -> doc_evaluations feature coverage (retrain join) ==='
+             \$PSQL -c \"SELECT count(*) AS labels_total, count(*) FILTER (WHERE EXISTS (SELECT 1 FROM doc_evaluations e WHERE e.doc_id=l.doc_id AND e.field=l.field)) AS labels_with_eval, count(*) FILTER (WHERE EXISTS (SELECT 1 FROM doc_evaluations e WHERE e.doc_id=l.doc_id AND e.field=l.field AND (e.payload->'candidates'->0) ? 'features')) AS labels_with_features FROM labels l\"
+
+             echo '=== distinct labeled docs vs labeled docs that have ANY doc_evaluations ==='
+             \$PSQL -c \"SELECT count(DISTINCT l.doc_id) AS labeled_docs, count(DISTINCT l.doc_id) FILTER (WHERE EXISTS (SELECT 1 FROM doc_evaluations e WHERE e.doc_id=l.doc_id)) AS labeled_docs_with_eval FROM labels l\"
+
+             echo '=== model_runs (retrain persistence proof) ==='
+             \$PSQL -c \"SELECT count(*) AS n_model_runs FROM model_runs\"
+             \$PSQL -c \"SELECT run_id, payload->>'n_samples' AS n_samples, payload->>'n_positive' AS n_positive FROM model_runs ORDER BY id DESC LIMIT 3\"
+
+             echo '=== model usage on RECENT evals (bounded 300 — safe) ==='
+             \$PSQL -c \"SELECT count(*) FILTER (WHERE (payload->>'used_ml_model')::bool IS TRUE) AS used_ml_recent, count(*) AS recent_total FROM (SELECT payload FROM doc_evaluations ORDER BY created_at DESC LIMIT 300) s\"
+
+             echo '=== recent reextract exceptions (worker log, bounded) ==='
+             \$COMPOSE logs --tail=400 --no-color worker 2>&1 | grep -iE 'reextract|exception|error|traceback|feature_geometry_missing|geometry' | tail -40 || true
+
+             echo '=== retrain events (worker log, wide) ==='
+             \$COMPOSE logs --tail=1000 --no-color worker 2>&1 | grep -iE 'train_start|train_ranker|train_model_logged|train_model_persist_failed|train_no_rows|train_no_predictions|model_loader_xgb_load_failed|model_loader_cached' | tail -40 || echo 'no train events in window'
+
+             echo '=== mlflow server log tail (artifact write errors) ==='
+             \$COMPOSE logs --tail=50 --no-color mlflow 2>&1 | tail -50 || true
+
+             echo '=== mlflow experiments artifact_location (mlflow DB) ==='
+             \$COMPOSE exec -T postgres psql -U invoicex -d mlflow -At -c \"SELECT experiment_id, name, artifact_location FROM experiments ORDER BY experiment_id\" 2>&1 | head -20 || echo 'mlflow-db query failed'
+
+             echo '=== mlflow container actual start command (args) ==='
+             docker inspect invoicex-mlflow --format '{{json .Args}}' 2>&1 || echo 'inspect failed'
+
+             echo '=== postgres log tail (backend crash signal) ==='
+             \$COMPOSE logs --tail=40 --no-color postgres 2>&1 | tail -40 || true
+
+             echo '=== worker container state + last 15 log lines ==='
+             \$COMPOSE ps worker
+             \$COMPOSE logs --tail=15 --no-color worker 2>&1 || true
+
+             echo '=== worker restart diagnostics (docker inspect) ==='
+             docker inspect invoicex-worker --format 'RestartCount={{.RestartCount}} OOMKilled={{.State.OOMKilled}} ExitCode={{.State.ExitCode}} Status={{.State.Status}} StartedAt={{.State.StartedAt}} FinishedAt={{.State.FinishedAt}} Error={{.State.Error}}' 2>&1 || echo 'inspect failed'
+
+             echo '=== worker last 60 log lines (shutdown reason) ==='
+             \$COMPOSE logs --tail=60 --no-color worker 2>&1 | tail -60 || true
+
+             echo '=== per-container memory ==='
+             docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}' || true
+
+             echo '=== feature_geometry_missing (geometry default firing) ==='
+             \$COMPOSE logs --tail=2000 --no-color worker 2>&1 | grep -c 'feature_geometry_missing' || echo 0
+             \$COMPOSE logs --tail=2000 --no-color worker 2>&1 | grep 'feature_geometry_missing' | tail -20 || true
+
+             echo '=== PG STATUS DONE ==='"
+          rm -f "$RUNNER_TEMP/vm_key"

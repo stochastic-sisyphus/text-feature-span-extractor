@@ -1,0 +1,41 @@
+%%{init: {'flowchart': {'defaultRenderer': 'elk'}}}%%
+flowchart TD
+    subgraph grp_Core["Core"]
+        svc_worker["worker"]:::node
+        svc_postgrest["postgrest :3000"]:::node
+        svc_nginx["nginx :80"]:::node
+    end
+    subgraph grp_Storage["Storage"]
+        svc_postgres["postgres :5432"]:::node
+    end
+    subgraph grp_ML["ML"]
+        svc_mlflow["mlflow :5000"]:::node
+    end
+    subgraph grp_UI["UI"]
+        svc_grafana["grafana :3000"]:::node
+    end
+    subgraph grp_Observability["Observability (observability)"]
+        svc_otel_collector["otel-collector :4317"]:::node
+        svc_tempo["tempo :3200"]:::node
+        svc_loki["loki :3100"]:::node
+        svc_prometheus["prometheus :9090"]:::node
+        svc_alertmanager["alertmanager :9093"]:::node
+    end
+    svc_worker --> svc_postgres
+    svc_postgrest --> svc_postgres
+    svc_mlflow --> svc_postgres
+    svc_nginx --> svc_grafana
+    svc_nginx --> svc_mlflow
+    svc_nginx --> svc_postgrest
+    svc_otel_collector --> svc_tempo
+    svc_otel_collector --> svc_loki
+    svc_otel_collector --> svc_prometheus
+    svc_grafana --> svc_postgres
+    svc_alertmanager --> svc_alertmanager_config
+    User(["User :80"]):::io --> svc_nginx
+
+    %% Palette
+    classDef node fill:#40312F,stroke:#51504B,color:#dbd6d1
+    classDef accent fill:#46696B,stroke:#69AAB2,color:#dbd6d1
+    classDef io fill:#2A1B16,stroke:#778C89,color:#dbd6d1
+    classDef decision fill:#5C5A72,stroke:#C6C2D2,color:#dbd6d1

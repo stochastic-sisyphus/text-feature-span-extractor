@@ -1,0 +1,64 @@
+# Grafana-native alert rule for InvoiceX API 5xx spikes.
+#
+# Redundant with infra/prometheus/rules/api-5xx.yml — Prometheus evaluates
+# those rules and routes via Alertmanager. This file provisions the same
+# signal as a Grafana alert so it's visible in the Grafana Alerting UI
+# (and can be wired to Grafana contact points if Alertmanager is bypassed).
+#
+# Requires: datasource "Prometheus" with uid: prometheus (set explicitly in datasources.yaml).
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: invoicex-api-5xx
+    folder: InvoiceX Alerts
+    interval: 30s
+    rules:
+      - uid: invoicex-api-5xx-spike
+        title: InvoicexApi5xxSpike
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 120
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: sum(rate(invoicex_api_5xx_total[2m]))
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.1]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Alerting
+        for: 2m
+        labels:
+          severity: critical
+          service: invoicex-api
+        annotations:
+          summary: "InvoiceX API 5xx rate > 0.1/sec for 2 minutes"
+          description: "API emitting 5xx on /api/v1/*. Investigate dependency health (Postgres, MLflow, SharePoint) and structured logs."

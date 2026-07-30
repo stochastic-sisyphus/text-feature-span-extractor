@@ -1,0 +1,53 @@
+name: Queue Unstick (manual)
+on:
+  workflow_dispatch: {}
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  unstick:
+    name: Clear queue_manager_id poison on canceled rows and restart worker
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: Clear queue_manager_id poison on canceled rows and restart worker
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set -e
+             # SAFETY:
+             # - Only queue_manager_id is nulled on already-canceled rows; status is unchanged
+             # - pgqueuer counts rows WHERE queue_manager_id IS NOT NULL against an entrypoint's
+             #   concurrency_limit regardless of status; canceled rows with qmid set permanently
+             #   occupy the dequeue slot, preventing any new rows from being dispatched
+             # - docs, labels, doc_evaluations, contract_schema are never touched
+             # - postgres is not restarted (it is healthy); only the worker is restarted
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+             PSQL=\"\$COMPOSE exec -T postgres psql -U invoicex -d invoicex\"
+
+             echo '=== BEFORE: per-entrypoint qmid-set on canceled rows ==='
+             \$PSQL -At -c \"SELECT entrypoint, count(*) FILTER (WHERE queue_manager_id IS NOT NULL) AS canceled_with_qmid FROM pgqueuer WHERE status='canceled' GROUP BY entrypoint ORDER BY entrypoint\"
+
+             echo '=== FIX: clear queue_manager_id on canceled rows (releases the dequeue concurrency slot) ==='
+             \$PSQL -v ON_ERROR_STOP=1 -c \"UPDATE pgqueuer SET queue_manager_id=NULL WHERE status='canceled' AND queue_manager_id IS NOT NULL\"
+
+             echo '=== AFTER: per-entrypoint qmid-set on canceled rows (expect 0) ==='
+             \$PSQL -At -c \"SELECT entrypoint, count(*) FILTER (WHERE queue_manager_id IS NOT NULL) AS canceled_with_qmid FROM pgqueuer WHERE status='canceled' GROUP BY entrypoint ORDER BY entrypoint\"
+
+             echo '=== AFTER: live queued counts (should now be dispatchable) ==='
+             \$PSQL -At -c \"SELECT entrypoint, status, count(*) FROM pgqueuer WHERE status='queued' GROUP BY entrypoint, status ORDER BY entrypoint\"
+
+             echo '=== RESTART: worker only (postgres untouched) ==='
+             \$COMPOSE restart worker
+             echo '=== WAIT 12s + worker logs ==='
+             sleep 12
+             \$COMPOSE logs --tail=20 --no-color worker"
+          rm -f "$RUNNER_TEMP/vm_key"

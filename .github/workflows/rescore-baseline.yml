@@ -1,0 +1,39 @@
+name: Rescore Baseline (manual)
+on:
+  workflow_dispatch: {}
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  rescore-baseline:
+    name: Force-rescore 4 baseline docs and dump extracted fields
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: Force-rescore 4 baseline docs and dump extracted fields
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set +e
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+             PSQL=\"\$COMPOSE exec -T postgres psql -U invoicex -d invoicex -At\"
+
+             echo '=== enqueue reextract for 4 baseline docs ==='
+             \$PSQL -c \"WITH targets AS (SELECT sha256, payload->>'source_id' AS source_id, payload->>'filename' AS fn FROM docs WHERE payload->>'filename' IN ('2634277092124.pdf','0442979112624.pdf','31560580120241118.pdf','852920086855637520250218.pdf')) SELECT fn, fn_pgqueuer_enqueue('reextract', encode(convert_to(json_build_object('sha', source_id)::text,'UTF8'),'base64'), source_id) FROM targets WHERE source_id IS NOT NULL\"
+
+             echo '=== wait 180s for reextract + score ==='
+             sleep 180
+
+             echo '=== BASELINE RESCORE RESULTS ==='
+             \$PSQL -c \"SELECT d.payload->>'filename' AS file, e.field, e.payload->'candidates'->0->>'raw_text' AS extracted_value, round(COALESCE((e.payload->>'priority_score')::numeric,0),3) AS confidence, e.created_at FROM doc_evaluations e JOIN docs d ON d.sha256 = e.doc_id WHERE d.payload->>'filename' IN ('2634277092124.pdf','0442979112624.pdf','31560580120241118.pdf','852920086855637520250218.pdf') AND e.created_at > now() - interval '5 minutes' ORDER BY d.payload->>'filename', e.field\"
+
+             echo '=== RESCORE-BASELINE DONE ==='"
+          rm -f "$RUNNER_TEMP/vm_key"

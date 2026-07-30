@@ -1,0 +1,559 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Extraction quality metrics: field confidence, status distribution, and candidate-space distributions — sourced from doc_evaluations.payload (InvoiceX DB).",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "dashboard",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": ["invoicex"],
+      "targetBlank": false,
+      "title": "InvoiceX Dashboards",
+      "tooltip": "",
+      "type": "dashboards",
+      "url": ""
+    }
+  ],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "panels": [],
+      "title": "Field Status Overview",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "invoicex-db" },
+      "description": "Total doc_evaluations rows per field — fields the pipeline actively predicts.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "showLegend": true, "values": ["value", "percent"] },
+        "pieType": "donut",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "invoicex-db" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT field, COUNT(*) AS count FROM doc_evaluations GROUP BY field ORDER BY count DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Field Status Distribution",
+      "type": "piechart"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "invoicex-db" },
+      "description": "Evaluation count per field, broken down by payload reason.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineWidth": 1,
+            "scaleDistribution": { "type": "linear" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 1 },
+      "id": 2,
+      "options": {
+        "barRadius": 0.1,
+        "barWidth": 0.8,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "stacking": "normal",
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "invoicex-db" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT field, COALESCE(payload->>'reason', '(none)') AS reason, COUNT(*) AS count FROM doc_evaluations GROUP BY 1, 2 ORDER BY 1, 3 DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Status by Field",
+      "type": "barchart"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "id": 101,
+      "panels": [],
+      "title": "Confidence Metrics",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "invoicex-db" },
+      "description": "Average priority_score per field — higher is better. priority_score is the primary confidence signal written by the extraction worker.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#F2495C", "value": null },
+              { "color": "#FF9830", "value": 0.5 },
+              { "color": "#FADE2A", "value": 0.7 },
+              { "color": "#73BF69", "value": 0.85 }
+            ]
+          },
+          "unit": "percentunit",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 10 },
+      "id": 3,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 120,
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showThresholdLabels": true,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "invoicex-db" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT field, AVG((payload->>'priority_score')::float) AS avg_confidence FROM doc_evaluations WHERE payload->>'priority_score' IS NOT NULL GROUP BY field ORDER BY avg_confidence DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Average Confidence by Field",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "invoicex-db" },
+      "description": "priority_score distribution in 10 equal buckets (0.0–1.0). Width of each bar shows how many evaluations fall in that confidence range.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisColorMode": "text",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineWidth": 1,
+            "scaleDistribution": { "type": "linear" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 4,
+      "options": {
+        "barRadius": 0.05,
+        "barWidth": 0.8,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "orientation": "vertical",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": { "mode": "single", "sort": "none" },
+        "xTickLabelRotation": 0
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "invoicex-db" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ROUND(((payload->>'priority_score')::float / 0.1)::numeric) * 0.1 AS bucket, COUNT(*) AS count FROM doc_evaluations WHERE payload->>'priority_score' IS NOT NULL GROUP BY bucket ORDER BY bucket",
+          "refId": "A"
+        }
+      ],
+      "title": "Confidence Distribution Heatmap",
+      "type": "barchart"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "invoicex-db" },
+      "description": "Hourly median priority_score per field. Tracks confidence trend as more docs are processed.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "line" }
+          },
+          "mappings": [],
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "#EAB839", "value": 0.85 }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "id": 5,
+      "options": {
+        "legend": { "calcs": ["mean", "min"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "invoicex-db" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('hour', created_at) AS time, field, percentile_cont(0.5) WITHIN GROUP (ORDER BY (payload->>'priority_score')::float) AS p50_confidence FROM doc_evaluations WHERE $__timeFilter(created_at) AND payload->>'priority_score' IS NOT NULL GROUP BY 1, 2 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Confidence Over Time by Field (p50)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "id": 103,
+      "panels": [],
+      "title": "Field Thresholds",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "invoicex-db" },
+      "description": "p50 and p90 priority_score per field — spread between quantiles indicates consistency. Wide spread = high variance in extraction confidence.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "max": 1,
+          "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 25 },
+      "id": 10,
+      "options": {
+        "legend": { "calcs": ["mean", "min"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "invoicex-db" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT field, percentile_cont(0.5) WITHIN GROUP (ORDER BY (payload->>'priority_score')::float) AS p50, percentile_cont(0.9) WITHIN GROUP (ORDER BY (payload->>'priority_score')::float) AS p90 FROM doc_evaluations WHERE payload->>'priority_score' IS NOT NULL GROUP BY field ORDER BY p50 DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Per-Field Confidence Distribution (p50 + p90)",
+      "type": "barchart"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "invoicex-db" },
+      "description": "Per-field average confidence vs evaluator_version — shows how model version correlates with confidence per field.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "color-background" },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#F2495C", "value": null },
+              { "color": "#FADE2A", "value": 0.5 },
+              { "color": "#73BF69", "value": 0.8 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "avg_confidence" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "decimals", "value": 3 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 33 },
+      "id": 9,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "enablePagination": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": false, "displayName": "avg_confidence" }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "invoicex-db" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT field, evaluator_version, AVG((payload->>'priority_score')::float) AS avg_confidence, COUNT(*) AS evaluations FROM doc_evaluations WHERE payload->>'priority_score' IS NOT NULL GROUP BY 1, 2 ORDER BY avg_confidence",
+          "refId": "A"
+        }
+      ],
+      "title": "Field Threshold Status",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 },
+      "id": 200,
+      "panels": [],
+      "title": "Prediction Activity",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "invoicex-db" },
+      "description": "Hourly evaluation count by field — shows extraction throughput per field over the selected time range.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 42 },
+      "id": 201,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "invoicex-db" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('hour', created_at) AS time, field, COUNT(*) AS evaluations FROM doc_evaluations WHERE $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Predictions Emitted Rate by Field",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "invoicex-db" },
+      "description": "Total doc_evaluations rows per field in the last 24 hours.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 42 },
+      "id": 202,
+      "options": {
+        "displayMode": "gradient",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "text": {},
+        "tooltip": { "mode": "single", "sort": "none" },
+        "valueMode": "color"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "invoicex-db" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT field, COUNT(*) AS evaluations_24h FROM doc_evaluations WHERE created_at > NOW() - INTERVAL '24 hours' GROUP BY field ORDER BY evaluations_24h DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Predictions Emitted (24h) by Field",
+      "type": "bargauge"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "invoicex-db" },
+      "description": "Signal disagreement rate and ML model usage rate — key quality signals from doc_evaluations.payload.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#73BF69", "value": null }, { "color": "#F2495C", "value": 0.2 }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "signal_disagreement_rate" },
+            "properties": [{ "id": "unit", "value": "percentunit" }, { "id": "decimals", "value": 2 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "ml_model_usage_rate" },
+            "properties": [{ "id": "unit", "value": "percentunit" }, { "id": "decimals", "value": 2 }]
+          }
+        ]
+      },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 50 },
+      "id": 203,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "invoicex-db" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) FILTER (WHERE (payload->>'signal_disagreement')::boolean) / NULLIF(COUNT(*)::float, 0) AS signal_disagreement_rate, COUNT(*) FILTER (WHERE (payload->>'used_ml_model')::boolean) / NULLIF(COUNT(*)::float, 0) AS ml_model_usage_rate, COUNT(*) AS total_evaluations FROM doc_evaluations",
+          "refId": "A"
+        }
+      ],
+      "title": "Signal Quality Summary",
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["invoicex", "extraction", "quality"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {
+    "refresh_intervals": ["30s", "1m", "5m", "15m", "1h"]
+  },
+  "timezone": "browser",
+  "title": "InvoiceX - Extraction Quality",
+  "uid": "invoicex-extraction-quality",
+  "version": 2,
+  "weekStart": ""
+}

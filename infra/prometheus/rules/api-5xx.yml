@@ -1,0 +1,67 @@
+# InvoiceX API 5xx Alerting Rules
+# Fires on spikes in 5xx responses from the FastAPI app under /api/v1/*.
+#
+# Source metric: invoicex_api_5xx_total{route, exc_class, status_code}
+#   - Emitted by src/invoices/web/handlers.py
+#   - Exposed via /metrics (src/invoices/routes/health.py::prometheus_metrics)
+#   - Scraped by the 'invoicex' job in infra/prometheus.yaml (api:8080 @ 30s)
+#
+# Scrape interval: 30s (per prometheus.yaml scrape_configs job='invoicex').
+# Rate windows below are sized >= 2x scrape interval so samples are stable.
+#
+# Alerts route via Alertmanager using the 'service: invoicex-api' label
+# (see infra/alertmanager.yml).
+
+groups:
+  - name: invoicex-api-5xx
+    interval: 30s
+    rules:
+      # Broad 5xx spike — any server-side failure on /api/v1/*.
+      # Threshold 0.1 req/s sustained for 2m = ~12 failures/min for >=2m.
+      # Catches both unhandled exceptions (500) and dependency failures (503).
+      - alert: InvoicexApi5xxSpike
+        expr: sum(rate(invoicex_api_5xx_total[2m])) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          service: invoicex-api
+        annotations:
+          summary: "InvoiceX API 5xx rate > 0.1/sec for 2 minutes"
+          description: |
+            API is emitting 5xx responses on /api/v1/*. Investigate:
+              - structured logs for event=dependency_unavailable / timeout / unhandled_exception
+              - Tempo traces filtered by status_code=STATUS_CODE_ERROR
+              - Postgres / MLflow / SharePoint health
+            Top routes by 5xx rate:
+              topk(5, sum by (route) (rate(invoicex_api_5xx_total[5m])))
+
+      # Dependency-unavailable signal — 503s indicate upstream health issue
+      # (asyncpg pool exhausted, Postgres down, SharePoint/MLflow timeout).
+      # Uses increase() over 5m so a single burst is visible.
+      - alert: InvoicexApiDependencyUnavailable
+        expr: increase(invoicex_api_5xx_total{status_code="503"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: invoicex-api
+        annotations:
+          summary: "InvoiceX API dependency unavailable (503 JSON)"
+          description: |
+            503 responses on route {{ $labels.route }} (exc_class={{ $labels.exc_class }}).
+            Typical causes: asyncpg connection failure, Postgres restart,
+            SharePoint token expiry, MLflow tracking server unreachable.
+            Check: docker compose logs postgres mlflow api --tail=200
+
+      # Unhandled-exception signal — 500s usually mean a bug, not infra.
+      # Separate channel so code bugs don't get lost in dep-unavailable noise.
+      - alert: InvoicexApiUnhandledException
+        expr: increase(invoicex_api_5xx_total{status_code="500"}[10m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: invoicex-api
+        annotations:
+          summary: "InvoiceX API unhandled exception (500)"
+          description: |
+            Unhandled exception on route {{ $labels.route }} (exc_class={{ $labels.exc_class }}).
+            Likely a code bug — grep logs for the exc_class and stack trace.

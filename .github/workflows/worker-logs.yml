@@ -1,0 +1,42 @@
+name: Worker Logs (manual)
+on:
+  workflow_dispatch: {}
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  status:
+    name: Worker Logs (manual)
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: Worker Logs (manual)
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set +e
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+             PSQL=\"\$COMPOSE exec -T postgres psql -U invoicex -d invoicex -At\"
+
+             echo '=== docker events worker (last 8m: oom/die/start with exit codes) ==='
+             timeout 8 docker events --since 8m --until 0s --filter container=invoicex-worker --format '{{.Time}} {{.Action}} exit={{index .Actor.Attributes \"exitCode\"}} dur={{index .Actor.Attributes \"execDuration\"}}' 2>&1 | tail -40 || echo 'no events'
+
+             echo '=== docker inspect state ==='
+             docker inspect invoicex-worker --format 'RestartCount={{.RestartCount}} ExitCode={{.State.ExitCode}} OOMKilled={{.State.OOMKilled}} Status={{.State.Status}} StartedAt={{.State.StartedAt}} FinishedAt={{.State.FinishedAt}}' 2>&1 || true
+
+             echo '=== poison doc identity ==='
+             \$PSQL -c \"SELECT sha256, payload->>'name' AS name, jsonb_array_length(payload->'pages') AS pages, pg_column_size(payload) AS payload_bytes FROM docs WHERE sha256 LIKE '01CYEW%'\" 2>&1 || echo 'query failed'
+
+             echo '=== RAW worker logs, last 6 min (full cycle incl. shutdown->restart boundary) ==='
+             \$COMPOSE logs --since 6m --no-color --timestamps worker 2>&1 | tail -500 || echo 'logs failed'
+
+             echo '=== WORKER LOGS DONE ==='"
+          rm -f "$RUNNER_TEMP/vm_key"

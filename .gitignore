@@ -1,0 +1,42 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+data/
+*.egg-info/
+/dist/
+build/
+
+node_modules/
+.mypy_cache/
+.ruff_cache/
+local-dev/
+mlflow_artifacts/
+.DS_Store
+*.log
+.env.*
+!.env.template
+.vscode/
+
+# session/state artifacts (never tracked, generated per-session)
+.claude-session-archive.md
+.claude-session-notes.md
+.claude/
+# .remember/ IS tracked on the private remote (handoff history, reviewable
+# anywhere). Mirror build uses an allowlist so it never reaches the client.
+
+# act local CI secrets (values filled by user — never commit)
+.secrets
+
+# session-opener artifacts (untracked, may be stale-Claude — see PROGRESS.md instead)
+OPEN-PROMPT.md
+PLAN.md
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+
+# LiLT weight file — 496MB, delivered via GitHub Release asset at build time
+models/lilt/model.safetensors
+.todos/

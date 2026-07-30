@@ -1,0 +1,68 @@
+name: PG Recover (manual)
+on:
+  workflow_dispatch: {}
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  recover:
+    name: Diagnose and recover postgres
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: Diagnose and recover postgres
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set -e
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+
+             echo '=== CONTAINER STATES ==='
+             \$COMPOSE ps
+
+             echo '=== HOST MEMORY (OOM check) ==='
+             free -h || true
+
+             echo '=== HOST DISK ==='
+             df -h / || true
+
+             echo '=== POSTGRES LOGS (last 200, crash/recovery cause) ==='
+             \$COMPOSE logs --tail=200 --no-color postgres 2>&1 || true
+
+             echo '=== RESTART postgres ==='
+             \$COMPOSE restart postgres
+
+             echo '=== WAIT for postgres to exit recovery (pg_is_in_recovery=false) ==='
+             for i in \$(seq 1 60); do
+               if \$COMPOSE exec -T postgres pg_isready -U invoicex -d invoicex -q; then
+                 REC=\$(\$COMPOSE exec -T postgres psql -U invoicex -d invoicex -At -c 'SELECT pg_is_in_recovery()' 2>/dev/null || echo err)
+                 echo \"attempt \$i: pg_isready ok, in_recovery=\$REC\"
+                 if [ \"\$REC\" = \"f\" ]; then echo 'postgres OUT of recovery'; break; fi
+               else
+                 echo \"attempt \$i: pg_isready not ready\"
+               fi
+               if [ \"\$i\" = \"60\" ]; then echo 'POSTGRES DID NOT RECOVER within 120s'; fi
+               sleep 2
+             done
+
+             echo '=== POSTGRES LOGS after restart (last 30) ==='
+             \$COMPOSE logs --tail=30 --no-color postgres 2>&1 || true
+
+             echo '=== RESTART worker (deploy left it stopped) ==='
+             \$COMPOSE up -d worker
+
+             echo '=== WAIT 10s, then worker logs ==='
+             sleep 10
+             \$COMPOSE logs --tail=25 --no-color worker 2>&1 || true
+
+             echo '=== FINAL container states ==='
+             \$COMPOSE ps"
+          rm -f "$RUNNER_TEMP/vm_key"

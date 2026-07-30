@@ -1,0 +1,73 @@
+# Alertmanager configuration TEMPLATE for InvoiceX.
+#
+# This file is NOT read directly by alertmanager. It is rendered by the
+# 'alertmanager-config' init service in docker-compose.yml, which runs
+# `envsubst` to expand ${ALERT_WEBHOOK_URL} into /etc/alertmanager/alertmanager.yml
+# on a shared volume. Alertmanager mounts that rendered file read-only.
+#
+# Why a sidecar? The prom/alertmanager image is distroless-ish (busybox/glibc)
+# and does not ship envsubst. Adding envsubst would require a custom image or
+# bundling gettext; the sidecar keeps the upstream image unmodified.
+#
+# Failure / degraded modes:
+#   - If ALERT_WEBHOOK_URL is unset or empty, the init service logs a LOUD
+#     warning and substitutes a .invalid placeholder URL so alertmanager
+#     still starts. Alerts remain visible in the Alertmanager UI; external
+#     webhook POSTs fail harmlessly until a real URL is configured. This
+#     lets deploys succeed in environments where the operator cannot edit
+#     the VM .env (see infra/alertmanager-render.sh).
+#   - To enable external delivery: set ALERT_WEBHOOK_URL in .env and redeploy.
+#
+# Routing tree:
+#   default -> 'null'                          (drop, keeps scaffold silent)
+#     match service=invoicex-api -> 'api-5xx-webhook'
+#     match service=invoicex     -> 'invoicex-pipeline-webhook'
+#
+# Swapping for a typed receiver (Slack, PagerDuty, etc.):
+#   Replace the webhook_configs block on the appropriate receiver. Example Slack:
+#     slack_configs:
+#       - api_url: '${SLACK_WEBHOOK_URL}'
+#         channel: '#invoicex-alerts'
+#         title: '[{{ .CommonLabels.severity | toUpper }}] {{ .GroupLabels.alertname }}'
+#         text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+#   And add SLACK_WEBHOOK_URL to the renderer's required-var list.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: 'null'
+  routes:
+    # API 5xx alerts — page on critical, notify on warning.
+    - matchers:
+        - service = invoicex-api
+      receiver: 'api-5xx-webhook'
+      group_wait: 10s
+      group_interval: 2m
+      repeat_interval: 1h
+      continue: false
+
+    # Pipeline alerts (existing invoicex-alerts.yml rules).
+    - matchers:
+        - service = invoicex
+      receiver: 'invoicex-pipeline-webhook'
+      continue: false
+
+receivers:
+  - name: 'null'
+
+  # API 5xx receiver. URL expanded from ALERT_WEBHOOK_URL by the render sidecar.
+  - name: 'api-5xx-webhook'
+    webhook_configs:
+      - url: "${ALERT_WEBHOOK_URL}"
+        send_resolved: true
+
+  # Pipeline receiver. URL expanded from ALERT_WEBHOOK_URL by the render sidecar.
+  - name: 'invoicex-pipeline-webhook'
+    webhook_configs:
+      - url: "${ALERT_WEBHOOK_URL}"
+        send_resolved: true

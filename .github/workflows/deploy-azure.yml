@@ -1,0 +1,601 @@
+# =============================================================================
+# Azure Deployment Workflow — OPTIONAL, manual-trigger only
+# =============================================================================
+# One of several alternative deploy paths (see docs/deployment-options.md).
+# The default/primary path is a plain `docker compose up` on any Docker host —
+# nothing here is required to run InvoiceX. This workflow only exists for
+# teams who specifically want Azure Container Apps as the deploy target and
+# never fires automatically (workflow_dispatch only).
+#
+# Deploys InvoiceX infrastructure and application to Azure
+#
+# This workflow:
+# - Validates Bicep templates
+# - Deploys infrastructure (optional)
+# - Builds and pushes Docker image to ACR
+# - Updates Container App with new image
+#
+# Prerequisites:
+# - Azure subscription with appropriate permissions
+# - Service principal or OIDC federated credentials
+# - GitHub repository secrets configured
+#
+# Required Secrets:
+#   AZURE_CLIENT_ID       - Service principal client ID (for OIDC)
+#   AZURE_TENANT_ID       - Azure tenant ID
+#   AZURE_SUBSCRIPTION_ID - Azure subscription ID
+#
+# Required Variables:
+#   AZURE_RESOURCE_GROUP  - Target resource group name
+#   ACR_NAME              - Azure Container Registry name
+# =============================================================================
+
+name: Deploy to Azure
+
+on:
+  # Manual trigger with environment selection
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+        default: 'dev'
+      deploy_infra:
+        description: 'Deploy infrastructure (Bicep templates)'
+        required: false
+        type: boolean
+        default: false
+      image_tag:
+        description: 'Image tag to deploy (leave empty for git SHA)'
+        required: false
+        type: string
+        default: ''
+
+  # NOTE: Auto-trigger removed — VM deployment (deploy-vm.yml) is now the
+  # primary deploy path. Keep this workflow as manual-only fallback for
+  # Azure Container Apps if needed.
+
+# Prevent concurrent deployments to the same environment
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+# Permissions for Azure OIDC authentication
+permissions:
+  id-token: write
+  contents: read
+  packages: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  BICEP_PATH: infra/bicep
+
+jobs:
+  # ===========================================================================
+  # Determine deployment parameters
+  # ===========================================================================
+  setup:
+    name: Setup Deployment
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    outputs:
+      environment: ${{ steps.params.outputs.environment }}
+      image_tag: ${{ steps.params.outputs.image_tag }}
+      should_deploy: ${{ steps.params.outputs.should_deploy }}
+      deploy_infra: ${{ steps.params.outputs.deploy_infra }}
+
+    steps:
+      - name: Determine deployment parameters
+        id: params
+        run: |
+          # Manual trigger only (workflow_run auto-trigger removed)
+          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          DEPLOY_INFRA="${{ github.event.inputs.deploy_infra }}"
+          SHOULD_DEPLOY="true"
+
+          # Determine image tag
+          if [[ -n "${{ github.event.inputs.image_tag }}" ]]; then
+            IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+          else
+            IMAGE_TAG="${{ github.sha }}"
+          fi
+
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "should_deploy=${SHOULD_DEPLOY}" >> $GITHUB_OUTPUT
+          echo "deploy_infra=${DEPLOY_INFRA}" >> $GITHUB_OUTPUT
+
+          echo "### Deployment Parameters" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${ENVIRONMENT} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | ${IMAGE_TAG:0:12} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deploy Infra | ${DEPLOY_INFRA} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Should Deploy | ${SHOULD_DEPLOY} |" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================================================================
+  # Validate promotion gates
+  # ===========================================================================
+  # Ensures deployments follow the promotion path: dev -> staging -> prod
+  # - staging: requires prior deployment to dev
+  # - prod: requires prior deployment to staging
+  # - dev: no prerequisites
+  validate-promotion:
+    name: Validate Promotion Path
+    runs-on: [self-hosted, linux, non-prod]
+    needs: setup
+    if: needs.setup.outputs.should_deploy == 'true'
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check promotion prerequisites
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ENVIRONMENT="${{ needs.setup.outputs.environment }}"
+          IMAGE_TAG="${{ needs.setup.outputs.image_tag }}"
+
+          echo "Validating promotion path for: ${ENVIRONMENT}"
+          echo "Image tag: ${IMAGE_TAG}"
+
+          # Dev has no prerequisites
+          if [[ "${ENVIRONMENT}" == "dev" ]]; then
+            echo "OK: Dev environment - no prerequisites"
+            exit 0
+          fi
+
+          # Staging requires dev deployment
+          if [[ "${ENVIRONMENT}" == "staging" ]]; then
+            REQUIRED_ENV="dev"
+          # Prod requires staging deployment
+          elif [[ "${ENVIRONMENT}" == "prod" ]]; then
+            REQUIRED_ENV="staging"
+          else
+            echo "::warning::Unknown environment: ${ENVIRONMENT}"
+            exit 0
+          fi
+
+          echo "Checking if ${IMAGE_TAG} was previously deployed to ${REQUIRED_ENV}..."
+
+          # Query GitHub Deployments API for successful deployment
+          DEPLOYMENT=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/deployments" \
+            --jq ".[] | select(.environment == \"${REQUIRED_ENV}\" and .ref == \"${IMAGE_TAG}\" and .task == \"deploy\") | .id" \
+            | head -n1)
+
+          if [[ -z "${DEPLOYMENT}" ]]; then
+            echo "::error::Image ${IMAGE_TAG} has not been deployed to ${REQUIRED_ENV}"
+            echo "::error::Required promotion path: dev -> staging -> prod"
+            exit 1
+          fi
+
+          # Check if deployment was successful
+          STATUS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/deployments/${DEPLOYMENT}/statuses" \
+            --jq ".[0].state")
+
+          if [[ "${STATUS}" != "success" ]]; then
+            echo "::error::Previous deployment to ${REQUIRED_ENV} did not succeed (status: ${STATUS})"
+            exit 1
+          fi
+
+          echo "OK: Promotion gate passed: ${IMAGE_TAG} was successfully deployed to ${REQUIRED_ENV}"
+
+  # ===========================================================================
+  # Validate Bicep templates
+  # ===========================================================================
+  validate:
+    name: Validate Bicep
+    runs-on: [self-hosted, linux, non-prod]
+    needs: [setup, validate-promotion]
+    if: needs.setup.outputs.should_deploy == 'true'
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate Bicep templates
+        run: |
+          echo "Validating Bicep templates..."
+
+          # Build all Bicep files to check for syntax errors
+          for file in $(find ${{ env.BICEP_PATH }} -name "*.bicep"); do
+            echo "Validating: $file"
+            az bicep build --file "$file" --stdout > /dev/null
+          done
+
+          echo "All Bicep templates are valid"
+
+      - name: What-If deployment (dry run)
+        if: needs.setup.outputs.deploy_infra == 'true'
+        run: |
+          az deployment group what-if \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --template-file ${{ env.BICEP_PATH }}/main.bicep \
+            --parameters ${{ env.BICEP_PATH }}/parameters/${{ needs.setup.outputs.environment }}.bicepparam \
+            --parameters imageTag=${{ needs.setup.outputs.image_tag }}
+
+  # ===========================================================================
+  # Deploy infrastructure (conditional)
+  # ===========================================================================
+  deploy-infra:
+    name: Deploy Infrastructure
+    runs-on: [self-hosted, linux, non-prod]
+    needs: [setup, validate-promotion, validate]
+    if: |
+      needs.setup.outputs.should_deploy == 'true' &&
+      needs.setup.outputs.deploy_infra == 'true'
+    environment: ${{ needs.setup.outputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+
+    outputs:
+      acr_login_server: ${{ steps.deploy.outputs.acrLoginServer }}
+      container_app_fqdn: ${{ steps.deploy.outputs.containerAppFqdn }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy Bicep templates
+        id: deploy
+        run: |
+          echo "Deploying infrastructure to ${{ needs.setup.outputs.environment }}..."
+
+          DEPLOYMENT_OUTPUT=$(az deployment group create \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --template-file ${{ env.BICEP_PATH }}/main.bicep \
+            --parameters ${{ env.BICEP_PATH }}/parameters/${{ needs.setup.outputs.environment }}.bicepparam \
+            --parameters imageTag=${{ needs.setup.outputs.image_tag }} \
+            --query 'properties.outputs' \
+            --output json)
+
+          # Extract outputs
+          ACR_LOGIN_SERVER=$(echo $DEPLOYMENT_OUTPUT | jq -r '.containerRegistryLoginServer.value')
+          CONTAINER_APP_FQDN=$(echo $DEPLOYMENT_OUTPUT | jq -r '.containerAppFqdn.value')
+
+          echo "acrLoginServer=${ACR_LOGIN_SERVER}" >> $GITHUB_OUTPUT
+          echo "containerAppFqdn=${CONTAINER_APP_FQDN}" >> $GITHUB_OUTPUT
+
+          echo "### Infrastructure Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ACR | ${ACR_LOGIN_SERVER} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Container App | ${CONTAINER_APP_FQDN} |" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================================================================
+  # Build and push Docker image
+  # ===========================================================================
+  build-push:
+    name: Build & Push Image
+    runs-on: [self-hosted, linux, non-prod]
+    needs: [setup, validate-promotion, validate]
+    if: needs.setup.outputs.should_deploy == 'true'
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        run: |
+          az acr login --name ${{ vars.ACR_NAME }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ vars.ACR_NAME }}.azurecr.io/invoicex
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=${{ needs.setup.outputs.image_tag }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          target: production
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ vars.ACR_NAME }}.azurecr.io/invoicex:latest
+          cache-to: type=inline
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            GIT_SHA=${{ github.sha }}
+            VERSION=${{ needs.setup.outputs.image_tag }}
+
+      - name: Image summary
+        run: |
+          echo "### Docker Image Built" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** ${{ vars.ACR_NAME }}.azurecr.io" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** invoicex" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # ===========================================================================
+  # Deploy application
+  # ===========================================================================
+  # ===========================================================================
+  # NOTE: GitHub Environment Protection Rules
+  # ===========================================================================
+  # Configure in repository settings: Settings > Environments
+  #
+  # dev:
+  #   - No protection rules needed
+  #
+  # staging:
+  #   - Required reviewers: 1 reviewer
+  #   - Prevents accidental deployments
+  #
+  # production:
+  #   - Required reviewers: 2 reviewers
+  #   - Wait timer: 10 minutes (allows time to cancel if needed)
+  #   - Highest level of scrutiny for prod changes
+  # ===========================================================================
+
+  deploy-app:
+    name: Deploy Application
+    runs-on: [self-hosted, linux, non-prod]
+    needs: [setup, validate, build-push]
+    if: needs.setup.outputs.should_deploy == 'true'
+    environment: ${{ needs.setup.outputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+      deployments: write
+
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Update Container App
+        run: |
+          CONTAINER_APP_NAME="${{ needs.setup.outputs.environment }}-invoicex-app"
+          IMAGE="${{ vars.ACR_NAME }}.azurecr.io/invoicex:${{ needs.setup.outputs.image_tag }}"
+
+          echo "Updating Container App: ${CONTAINER_APP_NAME}"
+          echo "New image: ${IMAGE}"
+
+          az containerapp update \
+            --name "${CONTAINER_APP_NAME}" \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --image "${IMAGE}"
+
+      - name: Verify deployment
+        run: |
+          CONTAINER_APP_NAME="${{ needs.setup.outputs.environment }}-invoicex-app"
+
+          # Wait for revision to be ready
+          echo "Waiting for deployment to complete..."
+          sleep 30
+
+          # Get latest revision status
+          REVISION_STATUS=$(az containerapp revision list \
+            --name "${CONTAINER_APP_NAME}" \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "[0].properties.runningState" \
+            --output tsv)
+
+          if [[ "${REVISION_STATUS}" == "Running" ]]; then
+            echo "Deployment successful!"
+
+            FQDN=$(az containerapp show \
+              --name "${CONTAINER_APP_NAME}" \
+              --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+              --query "properties.configuration.ingress.fqdn" \
+              --output tsv)
+
+            echo "### Deployment Complete" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Environment:** ${{ needs.setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Application URL:** https://${FQDN}" >> $GITHUB_STEP_SUMMARY
+            echo "**Image Tag:** ${{ needs.setup.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "::error::Deployment may have issues. Revision status: ${REVISION_STATUS}"
+            exit 1
+          fi
+
+      - name: Health check
+        run: |
+          CONTAINER_APP_NAME="${{ needs.setup.outputs.environment }}-invoicex-app"
+
+          FQDN=$(az containerapp show \
+            --name "${CONTAINER_APP_NAME}" \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" \
+            --output tsv)
+
+          echo "Running health check against https://${FQDN}/health/live"
+
+          # Retry health check a few times
+          for i in {1..5}; do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://${FQDN}/health/live" || echo "000")
+
+            if [[ "${HTTP_STATUS}" == "200" ]]; then
+              echo "Health check passed!"
+              exit 0
+            fi
+
+            echo "Attempt ${i}: HTTP ${HTTP_STATUS}, retrying in 10s..."
+            sleep 10
+          done
+
+          echo "::warning::Health check did not return 200 after multiple attempts"
+
+      - name: Smoke test
+        run: |
+          CONTAINER_APP_NAME="${{ needs.setup.outputs.environment }}-invoicex-app"
+          IMAGE_TAG="${{ needs.setup.outputs.image_tag }}"
+
+          FQDN=$(az containerapp show \
+            --name "${CONTAINER_APP_NAME}" \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" \
+            --output tsv)
+
+          echo "Running smoke test against https://${FQDN}"
+
+          # Check readiness endpoint
+          READINESS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://${FQDN}/api/v1/health" || echo "000")
+
+          if [[ "${READINESS_STATUS}" != "200" ]]; then
+            echo "::warning::Readiness check failed: HTTP ${READINESS_STATUS}"
+            echo "### Smoke Test Warning" >> $GITHUB_STEP_SUMMARY
+            echo "Readiness endpoint returned HTTP ${READINESS_STATUS} instead of 200" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "OK: Readiness check passed"
+          fi
+
+          # Verify version/tag in response
+          HEALTH_RESPONSE=$(curl -s "https://${FQDN}/api/v1/health" || echo "{}")
+          DEPLOYED_VERSION=$(echo "${HEALTH_RESPONSE}" | jq -r '.version // .image_tag // empty')
+
+          if [[ -n "${DEPLOYED_VERSION}" ]]; then
+            echo "Deployed version: ${DEPLOYED_VERSION}"
+
+            # Check if deployed version matches expected
+            if [[ "${DEPLOYED_VERSION}" == "${IMAGE_TAG}" ]]; then
+              echo "OK: Version verification passed"
+            else
+              echo "::warning::Version mismatch: expected ${IMAGE_TAG}, got ${DEPLOYED_VERSION}"
+              echo "### Smoke Test Warning" >> $GITHUB_STEP_SUMMARY
+              echo "Version mismatch detected:" >> $GITHUB_STEP_SUMMARY
+              echo "- Expected: ${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+              echo "- Deployed: ${DEPLOYED_VERSION}" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "::warning::Could not verify deployed version from health response"
+            echo "### Smoke Test Warning" >> $GITHUB_STEP_SUMMARY
+            echo "Could not extract version information from health endpoint" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "### Smoke Test Complete" >> $GITHUB_STEP_SUMMARY
+          echo "Application is responding on https://${FQDN}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Record deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ENVIRONMENT="${{ needs.setup.outputs.environment }}"
+          IMAGE_TAG="${{ needs.setup.outputs.image_tag }}"
+          CONTAINER_APP_NAME="${{ needs.setup.outputs.environment }}-invoicex-app"
+
+          FQDN=$(az containerapp show \
+            --name "${CONTAINER_APP_NAME}" \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" \
+            --output tsv)
+
+          echo "Recording deployment to GitHub Deployments API..."
+
+          # Create deployment record
+          DEPLOYMENT_ID=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/deployments" \
+            -f ref="${IMAGE_TAG}" \
+            -f task="deploy" \
+            -f environment="${ENVIRONMENT}" \
+            -f description="Azure Container App deployment" \
+            --jq '.id')
+
+          echo "Created deployment record: ${DEPLOYMENT_ID}"
+
+          # Create success status
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/deployments/${DEPLOYMENT_ID}/statuses" \
+            -f state="success" \
+            -f environment_url="https://${FQDN}" \
+            -f description="Deployment successful"
+
+          echo "OK: Deployment record created and marked as successful"
+
+  # ===========================================================================
+  # Deployment Summary
+  # ===========================================================================
+  summary:
+    name: Deployment Summary
+    runs-on: [self-hosted, linux, non-prod]
+    needs: [setup, validate, build-push, deploy-app]
+    if: always() && needs.setup.outputs.should_deploy == 'true'
+    permissions:
+      contents: read
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Setup | ${{ needs.setup.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Validate | ${{ needs.validate.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build & Push | ${{ needs.build-push.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deploy | ${{ needs.deploy-app.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ needs.deploy-app.result }}" == "success" ]]; then
+            echo "**Result:** Deployment successful!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Result:** Deployment failed or skipped" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Deployment to ${{ needs.setup.outputs.environment }} failed"

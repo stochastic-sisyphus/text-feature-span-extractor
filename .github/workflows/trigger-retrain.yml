@@ -1,0 +1,40 @@
+name: Trigger Retrain (manual)
+on:
+  workflow_dispatch: {}
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  retrain:
+    name: Trigger Retrain (manual)
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: Trigger Retrain (manual)
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set -e
+             # SAFETY:
+             # - Only enqueues one retrain job into the pgqueuer job-queue table
+             # - entrypoint='retrain' is job-queue exhaust only; no source data is modified
+             # - docs, labels, doc_evaluations, contract_schema are never touched
+             # - nothing is restarted (postgres and worker are left running)
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+             PSQL=\"\$COMPOSE exec -T postgres psql -U invoicex -d invoicex\"
+
+             echo '=== ENQUEUE retrain ==='
+             \$PSQL -At -c \"SELECT fn_pgqueuer_enqueue('retrain')\"
+             echo '=== pgqueuer: retrain jobs now ==='
+             \$PSQL -At -c \"SELECT status, count(*) FROM pgqueuer WHERE entrypoint='retrain' GROUP BY status\"
+             echo '=== worker log tail (20) ==='
+             \$COMPOSE logs --tail=20 --no-color worker 2>&1 || true"
+          rm -f "$RUNNER_TEMP/vm_key"

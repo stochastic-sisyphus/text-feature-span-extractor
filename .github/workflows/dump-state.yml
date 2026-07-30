@@ -1,0 +1,83 @@
+name: Dump Postgres State
+on:
+  workflow_dispatch:
+    inputs:
+      include_unlabeled:
+        description: "Pull PDFs for ALL docs (not just labeled)"
+        type: boolean
+        default: false
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  dump:
+    name: Dump
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: Dump JSON state
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          mkdir -p "$RUNNER_TEMP/invoicex-dump"
+          LABEL_FILTER="sha256 IN (SELECT DISTINCT doc_id FROM labels) AND "
+          if [ "${{ inputs.include_unlabeled }}" = "true" ]; then LABEL_FILTER=""; fi
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set -e
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+             PSQL=\"\$COMPOSE exec -T postgres psql -U invoicex -d invoicex -At -c\"
+             rm -rf /tmp/invoicex-dump && mkdir /tmp/invoicex-dump
+             \$PSQL \"SELECT COALESCE(json_agg(row_to_json(t)),'[]'::json) FROM (SELECT sha256,doc_schema_version,created_at,updated_at FROM docs ORDER BY created_at DESC) t\" > /tmp/invoicex-dump/docs.json
+             \$PSQL \"SELECT COALESCE(json_agg(row_to_json(t)),'[]'::json) FROM (SELECT id,doc_id,field,action,submitted_by,payload,created_at FROM labels ORDER BY created_at DESC) t\" > /tmp/invoicex-dump/labels.json
+             \$PSQL \"SELECT COALESCE(json_agg(row_to_json(t)),'[]'::json) FROM (SELECT id,doc_id,field,evaluator_version,payload,created_at FROM doc_evaluations ORDER BY created_at DESC) t\" > /tmp/invoicex-dump/doc_evaluations.json
+             \$PSQL \"SELECT COALESCE(row_to_json(t),'{}'::json) FROM (SELECT * FROM contract_schema ORDER BY version DESC LIMIT 1) t\" > /tmp/invoicex-dump/contract_schema.json
+             \$PSQL \"SELECT COALESCE(json_agg(row_to_json(t)),'[]'::json) FROM (SELECT DISTINCT ON (e.doc_id,e.field) d.payload->>'filename' AS filename,e.field,e.payload->'candidates'->0->>'raw_text' AS extracted_value,COALESCE((e.payload->>'priority_score')::float,0) AS confidence,e.created_at AS evaluated_at,d.sha256 AS doc_id FROM doc_evaluations e JOIN docs d ON d.sha256=e.doc_id ORDER BY e.doc_id,e.field,e.id DESC) t\" > /tmp/invoicex-dump/extraction_results.json
+             \$PSQL \"SELECT COALESCE(json_agg(json_build_object('sha256',sha256,'item_id',payload->>'source_id','drive_id',payload->>'drive_id')),'[]'::json) FROM docs WHERE ${LABEL_FILTER}payload->>'source_id' IS NOT NULL\" > /tmp/invoicex-dump/labeled_sources.json
+             \$PSQL \"SELECT COALESCE(json_agg(row_to_json(t)),'[]'::json) FROM (SELECT status, count(*) AS n FROM pgqueuer GROUP BY status) t\" > /tmp/invoicex-dump/pgqueuer_status.json
+             \$PSQL \"SELECT COALESCE(json_agg(row_to_json(t)),'[]'::json) FROM (SELECT status, entrypoint, count(*) AS n FROM pgqueuer_log GROUP BY status, entrypoint) t\" > /tmp/invoicex-dump/pgqueuer_log_status.json
+             \$PSQL \"SELECT COALESCE(json_agg(row_to_json(t)),'[]'::json) FROM (SELECT id, status, entrypoint, created FROM pgqueuer_log ORDER BY id DESC LIMIT 30) t\" > /tmp/invoicex-dump/pgqueuer_log_recent.json
+             \$PSQL \"SELECT COALESCE(json_agg(row_to_json(t)),'[]'::json) FROM (SELECT sha256, (payload ? 'doc') AS has_doc, jsonb_array_length(payload->'candidates') AS n_candidates, (payload ? 'predictions') AS has_predictions FROM docs WHERE payload IS NOT NULL ORDER BY updated_at DESC LIMIT 5) t\" > /tmp/invoicex-dump/doc_payload_probe.json
+             \$COMPOSE logs --tail=400 --no-color worker > /tmp/invoicex-dump/worker_logs.txt 2>&1 || true
+             \$COMPOSE logs --tail=300 --no-color postgres > /tmp/invoicex-dump/postgres_logs.txt 2>&1 || true
+             df -h > /tmp/invoicex-dump/disk_usage.txt 2>&1 || true
+             docker system df -v > /tmp/invoicex-dump/docker_disk.txt 2>&1 || true
+             tar cf - -C /tmp invoicex-dump/" \
+            | tar xf - -C "$RUNNER_TEMP/"
+
+      - name: Download labeled PDFs
+        continue-on-error: true
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          MI_CLIENT_ID: ${{ vars.VM_MANAGED_IDENTITY_CLIENT_ID }}
+        run: |
+          SCRIPT_B64="aW1wb3J0IGpzb24sIG9zLCBwYXRobGliLCBzdWJwcm9jZXNzLCBzeXMsIHVybGxpYi5yZXF1ZXN0Cgpzb3VyY2VzID0ganNvbi5sb2FkcyhwYXRobGliLlBhdGgoJy90bXAvaW52b2ljZXgtZHVtcC9sYWJlbGVkX3NvdXJjZXMuanNvbicpLnJlYWRfdGV4dCgpIG9yICdbXScpIG9yIFtdCmlmIG5vdCBzb3VyY2VzOgogICAgcHJpbnQoJ25vIGxhYmVsZWQgc291cmNlcyDigJQgbm90aGluZyB0byBkb3dubG9hZCcpCiAgICBzeXMuZXhpdCgwKQoKY2xpZW50X2lkID0gb3MuZW52aXJvblsnTUlfQ0xJRU5UX0lEJ10KdG9rZW5fdXJsID0gKCdodHRwOi8vMTY5LjI1NC4xNjkuMjU0L21ldGFkYXRhL2lkZW50aXR5L29hdXRoMi90b2tlbicKICAgICAgICAgICAgICc/YXBpLXZlcnNpb249MjAxOC0wMi0wMScKICAgICAgICAgICAgICcmcmVzb3VyY2U9aHR0cHMlM0ElMkYlMkZncmFwaC5taWNyb3NvZnQuY29tJwogICAgICAgICAgICAgJyZjbGllbnRfaWQ9JyArIGNsaWVudF9pZCkKd2l0aCB1cmxsaWIucmVxdWVzdC51cmxvcGVuKHVybGxpYi5yZXF1ZXN0LlJlcXVlc3QodG9rZW5fdXJsLCBoZWFkZXJzPXsnTWV0YWRhdGEnOiAndHJ1ZSd9KSkgYXMgcjoKICAgIHRva2VuID0ganNvbi5sb2FkcyhyLnJlYWQoKSlbImFjY2Vzc190b2tlbiJdCgpvdXQgPSBwYXRobGliLlBhdGgoJy90bXAvaW52b2ljZXgtZHVtcC9wZGZzJykKb3V0Lm1rZGlyKGV4aXN0X29rPVRydWUpCmZvciByb3cgaW4gc291cmNlczoKICAgIHNoYSwgaXRlbV9pZCwgZHJpdmVfaWQgPSByb3dbJ3NoYTI1NiddLCByb3dbJ2l0ZW1faWQnXSwgcm93Wydkcml2ZV9pZCddCiAgICBpZiBub3QgaXRlbV9pZCBvciBub3QgZHJpdmVfaWQ6CiAgICAgICAgcHJpbnQoZidza2lwIHtzaGFbOjE2XX0gbWlzc2luZyBpZHMnKTsgY29udGludWUKICAgIGRlc3QgPSBvdXQgLyBmJ3tzaGF9LnBkZicKICAgIGlmIGRlc3QuZXhpc3RzKCk6CiAgICAgICAgcHJpbnQoZidza2lwIHtzaGFbOjE2XX0gZXhpc3RzJyk7IGNvbnRpbnVlCiAgICB1cmwgPSBmJ2h0dHBzOi8vZ3JhcGgubWljcm9zb2Z0LmNvbS92MS4wL2RyaXZlcy97ZHJpdmVfaWR9L2l0ZW1zL3tpdGVtX2lkfS9jb250ZW50JwogICAgcmMgPSBzdWJwcm9jZXNzLnJ1bihbJ2N1cmwnLCAnLXNmTCcsICctSCcsIGYnQXV0aG9yaXphdGlvbjogQmVhcmVyIHt0b2tlbn0nLCB1cmwsICctbycsIHN0cihkZXN0KV0sIGNoZWNrPUZhbHNlKS5yZXR1cm5jb2RlCiAgICBzaXplID0gZGVzdC5zdGF0KCkuc3Rfc2l6ZSBpZiByYyA9PSAwIGFuZCBkZXN0LmV4aXN0cygpIGVsc2UgMAogICAgcHJpbnQoJ29rJyBpZiByYyA9PSAwIGFuZCBzaXplID4gMCBlbHNlICdGQUlMJywgc2hhWzoxNl0sIGYne3NpemV9YicpCg=="
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "mkdir -p /tmp/invoicex-dump/pdfs && MI_CLIENT_ID='${MI_CLIENT_ID}' python3 -c \"import base64; exec(base64.b64decode('${SCRIPT_B64}'))\""
+          mkdir -p "$RUNNER_TEMP/invoicex-dump/pdfs"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "tar cf - -C /tmp/invoicex-dump pdfs/" \
+            | tar xf - -C "$RUNNER_TEMP/invoicex-dump/"
+          rm -f "$RUNNER_TEMP/vm_key"
+
+      - name: Summary
+        run: |
+          for f in "$RUNNER_TEMP/invoicex-dump/"*.json; do
+            echo "  $(basename $f): $(python3 -c "import json,sys; d=json.load(open('$f')); print(len(d) if isinstance(d,list) else 1, 'rows')" 2>/dev/null || echo 'n/a')"
+          done
+          pdf_count=$(find "$RUNNER_TEMP/invoicex-dump/pdfs/" -name '*.pdf' 2>/dev/null | wc -l)
+          echo "  pdfs/: $pdf_count labeled PDFs"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: invoicex-state-${{ github.run_id }}
+          path: ${{ runner.temp }}/invoicex-dump/
+          retention-days: 14
