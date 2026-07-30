@@ -1,0 +1,13 @@
+flowchart LR
+    PDF(["PDF"]):::io
+    PDF --> stg_candidates[candidates]:::accent
+    stg_candidates --> stg_tokenize[tokenize]:::accent
+    stg_tokenize --> stg_decode[decode]:::accent
+    stg_decode --> stg_emit[emit]:::accent
+    stg_emit --> JSON(["JSON"]):::io
+
+    %% Palette
+    classDef node fill:#40312F,stroke:#51504B,color:#dbd6d1
+    classDef accent fill:#46696B,stroke:#69AAB2,color:#dbd6d1
+    classDef io fill:#2A1B16,stroke:#778C89,color:#dbd6d1
+    classDef decision fill:#5C5A72,stroke:#C6C2D2,color:#dbd6d1

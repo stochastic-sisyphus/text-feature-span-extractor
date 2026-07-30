@@ -1,0 +1,1406 @@
+{
+  "id": null,
+  "uid": "invoicex-home",
+  "title": "Home",
+  "description": "InvoiceX master overview — community-template adapted (Catppuccin Mocha palette). Covers pipeline activity, queue depth, spaCy extraction surfaces (vendor drift, field confidence distribution, pattern coverage, entity counts), schema version history, and failed job counts. Source provenance: grafana.com/grafana/dashboards community stat+timeseries+table template adapted via jq path-rewrite.",
+  "tags": [
+    "invoicex",
+    "overview"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 4,
+  "refresh": "1m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "1h"
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "id": 100,
+      "title": "Pipeline Activity",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Recent SharePoint Ingests",
+      "description": "Documents ingested from SharePoint in the last 24 hours",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 0,
+        "y": 1
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#89b4fa",
+            "mode": "fixed"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#89b4fa",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS value FROM docs WHERE created_at > NOW() - INTERVAL '24 hours'",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Pipeline Activity (24h)",
+      "description": "Total doc_evaluations rows written in the last 24 hours",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 5,
+        "y": 1
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#a6e3a1",
+            "mode": "fixed"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#a6e3a1",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS value FROM doc_evaluations WHERE created_at > NOW() - INTERVAL '24 hours'",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Predictions Per Field (avg)",
+      "description": "Average number of doc_evaluations rows per field across all docs",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 10,
+        "y": 1
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#cba6f7",
+            "mode": "fixed"
+          },
+          "unit": "short",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#cba6f7",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ROUND(AVG(cnt)::numeric, 1) AS value FROM (SELECT doc_id, COUNT(*) AS cnt FROM doc_evaluations GROUP BY doc_id) s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Failed Jobs",
+      "description": "No failure state in current schema — extraction either completes (ready) or stays pending. Panel intentionally returns 0.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 15,
+        "y": 1
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#a6e3a1",
+                "value": null
+              },
+              {
+                "color": "#fab387",
+                "value": 1
+              },
+              {
+                "color": "#f38ba8",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT 0 AS value",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Schema Version",
+      "description": "Current contract_schema version number",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#89dceb",
+            "mode": "fixed"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#89dceb",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT MAX(version) AS value FROM contract_schema",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Ingest + Extraction Activity",
+      "description": "Hourly count of new docs ingested and doc_evaluations written",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "opacity",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ingested"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#89b4fa",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "evaluations"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#a6e3a1",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('hour', created_at) AS time, COUNT(*) AS ingested FROM docs WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('hour', created_at) AS time, COUNT(*) AS evaluations FROM doc_evaluations WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 200,
+      "title": "spaCy Extraction Surfaces",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      }
+    },
+    {
+      "id": 201,
+      "type": "table",
+      "title": "Vendor Drift",
+      "description": "Top vendors detected last 7d. Vendors not in learned_anchors (null before first retrain) are flagged as drifted. Renders empty before first retrain.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#a6e3a1",
+                "value": null
+              },
+              {
+                "color": "#f38ba8",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "drifted"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "true": {
+                        "color": "#f38ba8",
+                        "text": "NEW"
+                      },
+                      "false": {
+                        "color": "#a6e3a1",
+                        "text": "known"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH anchors AS (\n  SELECT COALESCE(payload->'learned_anchors', '[]'::jsonb) AS la\n  FROM contract_schema\n  ORDER BY version DESC LIMIT 1\n),\nvendors AS (\n  SELECT\n    e.payload->'candidates'->0->>'raw_text' AS vendor,\n    COUNT(*) AS occurrences\n  FROM doc_evaluations e\n  WHERE e.field = 'vendor'\n    AND e.created_at > NOW() - INTERVAL '7 days'\n    AND e.payload->'candidates'->0->>'raw_text' IS NOT NULL\n  GROUP BY 1\n  ORDER BY 2 DESC\n  LIMIT 20\n)\nSELECT\n  v.vendor,\n  v.occurrences,\n  NOT (SELECT la @> to_json(v.vendor)::jsonb FROM anchors) AS drifted\nFROM vendors v",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 202,
+      "type": "barchart",
+      "title": "Field Confidence Distribution",
+      "description": "Average priority_score per field from doc_evaluations (top-level payload key written by handle_reextract).",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "options": {
+        "barRadius": 0.05,
+        "barWidth": 0.8,
+        "groupWidth": 0.7,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "horizontal",
+        "tooltip": {
+          "mode": "single",
+          "sort": "desc"
+        },
+        "xTickLabelRotation": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#cba6f7",
+            "mode": "fixed"
+          },
+          "unit": "short",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  e.field,\n  ROUND(AVG((e.payload->>'priority_score')::float)::numeric, 3) AS avg_confidence,\n  COUNT(*) AS evaluations\nFROM doc_evaluations e\nWHERE (e.payload->>'priority_score') IS NOT NULL\nGROUP BY e.field\nORDER BY avg_confidence DESC",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 203,
+      "type": "bargauge",
+      "title": "Pattern Coverage",
+      "description": "Count of doc_evaluations rows by field — which fields are actively being predicted by spaCy pipeline.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "options": {
+        "displayMode": "gradient",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "showUnfilled": true,
+        "text": {}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#89dceb",
+            "mode": "fixed"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#89dceb",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT field, COUNT(*) AS predictions FROM doc_evaluations GROUP BY field ORDER BY predictions DESC",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 204,
+      "type": "stat",
+      "title": "Entity Counts Per Doc",
+      "description": "Average number of distinct fields predicted per document (vendor/date/amount/total/invoice-number hits).",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 23
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#fab387",
+            "mode": "fixed"
+          },
+          "unit": "short",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#fab387",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ROUND(AVG(field_count)::numeric, 1) AS value FROM (SELECT doc_id, COUNT(DISTINCT field) AS field_count FROM doc_evaluations GROUP BY doc_id) s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 205,
+      "type": "stat",
+      "title": "Total Docs in Corpus",
+      "description": "All-time docs count in the content-addressed store.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 23
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#89b4fa",
+            "mode": "fixed"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#89b4fa",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS value FROM docs",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 206,
+      "type": "timeseries",
+      "title": "Labels Submitted Over Time",
+      "description": "Human labeling activity — hourly labels submitted to the corrections surface.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 27
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#a6e3a1",
+            "mode": "fixed"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "spanNulls": true
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('hour', created_at) AS time, COUNT(*) AS labels FROM labels WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 300,
+      "title": "Schema + Queue",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      }
+    },
+    {
+      "id": 301,
+      "type": "table",
+      "title": "Schema Version History",
+      "description": "Recent contract_schema versions — append-only event log of field definition changes.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "version"
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#89dceb",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT version, created_at, CASE WHEN jsonb_typeof(payload->'fields') = 'array' THEN jsonb_array_length(payload->'fields') ELSE NULL END AS field_count, payload->>'run_id' AS run_id FROM contract_schema ORDER BY version DESC LIMIT 20",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 302,
+      "type": "table",
+      "title": "Queue — Pending Jobs",
+      "description": "pgqueuer jobs currently queued or being processed. Links to labeling interface via doc sha256.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#89b4fa",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "queued": {
+                        "color": "#fab387",
+                        "text": "queued"
+                      },
+                      "picked": {
+                        "color": "#89dceb",
+                        "text": "running"
+                      },
+                      "exception": {
+                        "color": "#f38ba8",
+                        "text": "failed"
+                      },
+                      "successful": {
+                        "color": "#a6e3a1",
+                        "text": "done"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT entrypoint, status, COUNT(*) AS jobs, MAX(created) AS latest FROM pgqueuer GROUP BY entrypoint, status ORDER BY latest DESC LIMIT 30",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 500,
+      "title": "Doc Lifecycle",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      }
+    },
+    {
+      "id": 501,
+      "type": "stat",
+      "title": "Docs — Pending",
+      "description": "Documents ingested but not yet extracted (payload does not yet contain doc key).",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 41
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#fab387",
+            "mode": "fixed"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#fab387",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS value FROM docs WHERE NOT (payload ? 'doc')",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 502,
+      "type": "stat",
+      "title": "Docs — Ready",
+      "description": "Documents with successful extraction (payload contains doc key).",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 41
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#a6e3a1",
+            "mode": "fixed"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#a6e3a1",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS value FROM docs WHERE payload ? 'doc'",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 503,
+      "type": "stat",
+      "title": "Docs — Failed",
+      "description": "No failure state in current schema — extraction either completes (ready) or stays pending. Panel intentionally returns 0.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 41
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#a6e3a1",
+                "value": null
+              },
+              {
+                "color": "#fab387",
+                "value": 1
+              },
+              {
+                "color": "#f38ba8",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT 0 AS value",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 504,
+      "type": "table",
+      "title": "Recent Worker Exceptions",
+      "description": "Last 20 pgqueuer_log rows with traceback — worker failures surfaced from queue_health signal.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#f38ba8",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT created AS time, entrypoint, traceback->>'exception_type' AS type, traceback->>'exception_message' AS message FROM pgqueuer_log WHERE traceback IS NOT NULL ORDER BY created DESC LIMIT 20",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 505,
+      "type": "timeseries",
+      "title": "Documents Pending vs Ready Over Time",
+      "description": "Hourly snapshot of doc counts by readiness — pending = no doc key, ready = payload has doc key.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "invoicex-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 53
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "opacity",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "invoicex-db"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  date_trunc('hour', created_at) AS time,\n  CASE WHEN payload ? 'doc' THEN 'ready' ELSE 'pending' END AS status,\n  COUNT(*) AS count\nFROM docs\nWHERE $__timeFilter(created_at)\nGROUP BY 1, 2\nORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 400,
+      "title": "Navigation",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      }
+    },
+    {
+      "id": 401,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 62
+      },
+      "options": {
+        "mode": "html",
+        "content": "<div style=\"display:flex;gap:16px;align-items:center;padding:16px 0;font-family:sans-serif\">\n  <a href=\"/a/invoicex-labeling-app/queue\" style=\"padding:12px 28px;background:#89b4fa;color:#1e1e2e;border-radius:6px;text-decoration:none;font-weight:600\">Review Queue</a>\n  <a href=\"/a/invoicex-labeling-app/schema\" style=\"padding:12px 28px;background:#1e1e2e;color:#cdd6f4;border:1px solid #313244;border-radius:6px;text-decoration:none;font-weight:500\">Field Manager</a>\n  <span style=\"color:#6c7086;font-size:13px\">InvoiceX — active learning pipeline</span>\n</div>"
+      }
+    }
+  ]
+}

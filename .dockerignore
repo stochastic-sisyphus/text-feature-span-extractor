@@ -1,0 +1,24 @@
+.git
+.github
+__pycache__
+*.py[cod]
+*.egg-info/
+.env
+.env.*
+.venv
+venv/
+data/
+/dist/
+Dockerfile*
+docker-compose*.yml
+.idea/
+.vscode/
+*.pem
+*.key
+credentials.json
+secrets/
+*.log
+.DS_Store
+
+# LiLT weight file — 496MB, pulled from GitHub Release at build time via secret
+models/lilt/model.safetensors

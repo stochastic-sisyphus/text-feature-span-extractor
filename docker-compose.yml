@@ -1,0 +1,661 @@
+# Docker Compose configuration for invoice extraction pipeline
+# Includes MLflow model registry, Grafana UI, and optional LGTM observability stack
+#
+# Usage:
+#   docker compose up -d                          # Start core + MLflow + Grafana + nginx
+#   docker compose --profile observability up -d  # Include LGTM tracing/metrics stack
+#   docker compose down                           # Stop services
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# ---------------------------------------------------------------------------
+# Shared environment anchors (DRY: 42 vars deduplicated across 2 services)
+# ---------------------------------------------------------------------------
+
+# Vars shared by worker and PostgREST-facing services
+x-common-env: &common-env
+  # Logging
+  INVOICEX_LOG_LEVEL: ${INVOICEX_LOG_LEVEL:-INFO}
+  INVOICEX_LOG_FORMAT: ${INVOICEX_LOG_FORMAT:-json}
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  # Model configuration
+  MODEL_ID: ${MODEL_ID:-unscored-baseline}
+  # Confidence thresholds
+  INVOICEX_CONFIDENCE_AUTO_APPROVE: ${INVOICEX_CONFIDENCE_AUTO_APPROVE:-0.85}
+  INVOICEX_NONE_BIAS: ${INVOICEX_NONE_BIAS:-0.05}
+  # Connector mode (local, azure)
+  INVOICEX_CONNECTOR_MODE: ${INVOICEX_CONNECTOR_MODE:-local}
+  # Backend switches (local ↔ Azure)
+  INVOICEX_STORAGE_BACKEND: ${INVOICEX_STORAGE_BACKEND:-blob}
+  INVOICEX_DOCUMENT_SOURCE: ${INVOICEX_DOCUMENT_SOURCE:-none}
+  INVOICEX_OUTPUT_BACKEND: ${INVOICEX_OUTPUT_BACKEND:-postgres}
+  # ---------------------------------------------------------------------
+  # OPTIONAL: Azure/SharePoint integration. SharePoint ingest is the only
+  # document source (INVOICEX_DOCUMENT_SOURCE none|sharepoint). With none the
+  # stack runs and nothing is ingested. OUTPUT_BACKEND=dataverse is validated
+  # config only, DataverseConnector has no call site in src.
+  # See docs/deployment-options.md.
+  # ---------------------------------------------------------------------
+  # Azure authentication (service principal or managed identity)
+  ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:-}
+  AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+  AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+  AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+  AZURE_MANAGED_IDENTITY_CLIENT_ID: ${AZURE_MANAGED_IDENTITY_CLIENT_ID:-}
+  # Azure Blob Storage (when STORAGE_BACKEND=blob)
+  AZURE_STORAGE_ACCOUNT_NAME: ${AZURE_STORAGE_ACCOUNT_NAME:-}
+  AZURE_STORAGE_CONTAINER_NAME: ${AZURE_STORAGE_CONTAINER_NAME:-invoicex}
+  # AZURE_STORAGE_CONNECTION_STRING intentionally omitted: an empty value makes
+  # MLflow's Azure artifact repo take the connection-string branch and raise
+  # "Connection string is either blank or malformed", shadowing DefaultAzureCredential.
+  # With it absent, MLflow uses DefaultAzureCredential → managed identity (VM) or
+  # service principal AZURE_CLIENT_ID/SECRET/TENANT (local dev). Both are set above.
+  # SharePoint (when DOCUMENT_SOURCE=sharepoint)
+  SHAREPOINT_SITE_ID: ${SHAREPOINT_SITE_ID:-}
+  SHAREPOINT_HOSTNAME: ${SHAREPOINT_HOSTNAME:-}
+  SHAREPOINT_SITE_PATH: ${SHAREPOINT_SITE_PATH:-}
+  SHAREPOINT_DRIVE_ID: ${SHAREPOINT_DRIVE_ID:-}
+  SHAREPOINT_FOLDER_PATH: ${SHAREPOINT_FOLDER_PATH:-}
+  SHAREPOINT_FOLDER: ${SHAREPOINT_FOLDER:-}
+  SHAREPOINT_CLIENT_ID: ${SHAREPOINT_CLIENT_ID:-}
+  SHAREPOINT_CLIENT_SECRET: ${SHAREPOINT_CLIENT_SECRET:-}
+  # Dataverse (when OUTPUT_BACKEND=dataverse)
+  DATAVERSE_ENVIRONMENT_URL: ${DATAVERSE_ENVIRONMENT_URL:-}
+  DATAVERSE_CLIENT_ID: ${DATAVERSE_CLIENT_ID:-}
+  DATAVERSE_CLIENT_SECRET: ${DATAVERSE_CLIENT_SECRET:-}
+  DATAVERSE_STAGING_TABLE: ${DATAVERSE_STAGING_TABLE:-invoicex_staging}
+  DATAVERSE_PRODUCTION_TABLE: ${DATAVERSE_PRODUCTION_TABLE:-invoicex_production}
+  INVOICEX_DATAVERSE_WRITE_ENABLED: ${INVOICEX_DATAVERSE_WRITE_ENABLED:-false}
+  # --------------------------- end optional block ------------------------
+
+# Pipeline tuning + orchestrator vars (invoicex only, NOT api)
+x-pipeline-env: &pipeline-env
+  INVOICEX_USE_RANKER: ${INVOICEX_USE_RANKER:-}
+  INVOICEX_ML_SCORE_WEIGHT: ${INVOICEX_ML_SCORE_WEIGHT:-}
+  INVOICEX_TRACE_CANDIDATES: ${INVOICEX_TRACE_CANDIDATES:-}
+  INVOICEX_EARLY_PAGE_BOOST: ${INVOICEX_EARLY_PAGE_BOOST:-}
+  INVOICEX_EARLY_PAGE_MAX_IDX: ${INVOICEX_EARLY_PAGE_MAX_IDX:-}
+  INVOICEX_PRUNING_THRESHOLD: ${INVOICEX_PRUNING_THRESHOLD:-}
+  INVOICEX_PRUNING_MAX_CANDIDATES: ${INVOICEX_PRUNING_MAX_CANDIDATES:-}
+  INVOICEX_PRUNING_MIN_TRIGGER: ${INVOICEX_PRUNING_MIN_TRIGGER:-}
+  INVOICEX_ORCHESTRATOR_MAX_RETRIES: ${INVOICEX_ORCHESTRATOR_MAX_RETRIES:-}
+  INVOICEX_ORCHESTRATOR_RETRY_BASE_SECONDS: ${INVOICEX_ORCHESTRATOR_RETRY_BASE_SECONDS:-}
+  INVOICEX_ORCHESTRATOR_RETRY_MULTIPLIER: ${INVOICEX_ORCHESTRATOR_RETRY_MULTIPLIER:-}
+  INVOICEX_ORCHESTRATOR_WATCH_INTERVAL: ${INVOICEX_ORCHESTRATOR_WATCH_INTERVAL:-}
+  INVOICEX_ORCHESTRATOR_SEED_FOLDER: ${INVOICEX_ORCHESTRATOR_SEED_FOLDER:-}
+
+# MLflow vars (invoicex + api)
+x-mlflow-env: &mlflow-env
+  INVOICEX_USE_MLFLOW: ${INVOICEX_USE_MLFLOW:-true}
+  INVOICEX_MLFLOW_TRACKING_URI: ${INVOICEX_MLFLOW_TRACKING_URI:-http://mlflow:5000}
+  INVOICEX_MLFLOW_EXPERIMENT_NAME: ${INVOICEX_MLFLOW_EXPERIMENT_NAME:-invoicex-local}
+  # Artifacts are stored on a local volume now (see mlflow command); this env is
+  # vestigial. Kept as the local path so nothing resolves to a blob URL.
+  MLFLOW_ARTIFACT_ROOT: /mlartifacts
+
+services:
+  # ==========================================================================
+  # Job Worker (Postgres-backed async worker — D.4)
+  # Idles against an empty queue until D.5 flips the watch loop to enqueue.
+  # ==========================================================================
+  worker:
+    image: invoicex:latest
+    container_name: invoicex-worker
+
+    entrypoint: ["/bin/bash", "-c"]
+    # Canonical pgqueuer supervisor pattern: factory + SIGINT/SIGTERM handlers +
+    # in-process restart loop (while not shutdown.is_set()).  exec makes python
+    # PID 1 so the supervisor receives SIGTERM directly from docker stop.
+    command: ["exec python -m pgqueuer run invoices.queue:create_pgqueuer --restart-on-failure --restart-delay 5 --batch-size 1 --max-concurrent-tasks 2"]
+
+    environment:
+      <<: [*common-env, *pipeline-env, *mlflow-env]
+      # INVOICEX_WORKER_CONCURRENCY is kept for mirror-gate compatibility.
+      # PgQueuer manages its own concurrency internally; this var is unused.
+      INVOICEX_WORKER_CONCURRENCY: ${INVOICEX_WORKER_CONCURRENCY:-1}
+      # Bound glibc per-thread arenas so the to_thread pipeline doesn't fragment
+      # freed memory across many arenas (RSS-walk → OOM mitigation).
+      MALLOC_ARENA_MAX: "2"
+      # HuggingFace cache in the invoicex-owned /app dir (writable by the runtime
+      # user). TRANSFORMERS_OFFLINE=1 forces local-only load — blocks any
+      # accidental Hub fetch and makes load failures explicit rather than silent.
+      HF_HOME: /app/.cache/huggingface
+      TRANSFORMERS_OFFLINE: "1"
+
+    # Worker readiness is file-based: the process touches /tmp/worker_ready
+    # AFTER PgQueuer entrypoints are registered.  Keying on the sentinel gives
+    # external observability (docker ps, depends_on) without binding an HTTP
+    # port the worker has no business owning.
+    healthcheck:
+      disable: true
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 11G
+          cpus: "1.0"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
+
+    logging: *default-logging
+
+  # ==========================================================================
+  # PostgREST — sole HTTP face for data (Wave E)
+  # Auto-introspects the invoicex DB; exposes docs, labels, doc_evaluations,
+  # contract_schema as REST + /rpc/* endpoints. nginx proxies /api/ here.
+  # Worker talks directly to Postgres via asyncpg — NOT via PostgREST.
+  # ==========================================================================
+  postgrest:
+    image: postgrest/postgrest:latest
+    container_name: invoicex-postgrest
+
+    environment:
+      PGRST_DB_URI: postgres://authenticator@postgres:5432/invoicex
+      PGRST_DB_ANON_ROLE: web_anon
+      PGRST_DB_SCHEMAS: public
+      PGRST_SERVER_PORT: "3000"
+      PGRST_SERVER_HOST: "0.0.0.0"
+
+    expose:
+      - "3000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    # No healthcheck: postgrest image is FROM scratch (no shell/wget/curl). nginx is the upstream reachability gate.
+    healthcheck:
+      disable: true
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M
+
+    logging: *default-logging
+
+  # ==========================================================================
+  # PostgreSQL (shared backend for MLflow + Grafana)
+  # ==========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: invoicex-postgres
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-invoicex}
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_DB: mlflow
+
+    command: ["-c", "hba_file=/etc/pg_hba.conf"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./infra/postgres/pg_hba.conf:/etc/pg_hba.conf:ro
+      - ./backups:/backups:rw
+      - ./infra/backup/pg-backup.sh:/backups/pg-backup.sh:ro
+
+    # Port exposed internally only - no external access needed
+    expose:
+      - "5432"
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-invoicex} -d mlflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 512M
+
+    logging: *default-logging
+
+  # ==========================================================================
+  # MLflow (model registry + experiment tracking)
+  # ==========================================================================
+  mlflow:
+    image: invoicex-mlflow:latest
+    container_name: invoicex-mlflow
+
+    environment:
+      # Azure credentials retained for DefaultAzureCredential (Grafana PDF proxy,
+      # SharePoint). Artifacts are on a local volume — blob is NOT used.
+      # Local dev: service principal + secret (from .env)
+      # Azure: managed identity (DefaultAzureCredential, no secrets needed)
+      AZURE_STORAGE_ACCOUNT_NAME: ${AZURE_STORAGE_ACCOUNT_NAME:-}
+      # AZURE_STORAGE_CONNECTION_STRING intentionally omitted — see note in the shared
+      # env anchor: empty value shadows DefaultAzureCredential; MLflow server uses
+      # managed identity for blob artifact read/write instead.
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_MANAGED_IDENTITY_CLIENT_ID: ${AZURE_MANAGED_IDENTITY_CLIENT_ID:-}
+      INVOICEX_MLFLOW_EXPERIMENT_NAME: ${INVOICEX_MLFLOW_EXPERIMENT_NAME:-invoicex-local}
+      MLFLOW_BACKEND_STORE_URI: postgresql://${POSTGRES_USER:-invoicex}@postgres:5432/mlflow
+
+    command:
+      - mlflow
+      - server
+      - --artifacts-destination
+      # Local volume, NOT Azure Blob: the VM managed identity has only Graph
+      # (Sites.Read.All/Files.Read.All), no Storage Blob RBAC, and the architecture
+      # mandates no blob storage. --serve-artifacts proxies reads/writes so the
+      # worker uses mlflow-artifacts:/ URIs and never needs blob creds.
+      - /mlartifacts
+      - --serve-artifacts
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "5000"
+      - --static-prefix
+      - /mlflow
+      - --workers
+      - "1"
+      - --gunicorn-opts
+      - "--preload --timeout 120"
+
+    volumes:
+      - mlflow_artifacts:/mlartifacts
+
+    # Port exposed internally only - nginx proxies /mlflow/
+    # Auth: nginx handles basic auth via .htpasswd (generated by deploy workflow)
+    # and enforces an IP allowlist. MLflow itself has no built-in auth.
+    expose:
+      - "5000"
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+    logging: *default-logging
+
+  # ==========================================================================
+  # nginx (reverse proxy)
+  # ==========================================================================
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: invoicex-nginx
+
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/.htpasswd:/etc/nginx/.htpasswd:ro
+
+    ports:
+      - "80:80"
+      # 443 not bound here - TLS is terminated upstream by Azure load balancer
+
+    depends_on:
+      grafana:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+      postgrest:
+        condition: service_started
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1/nginx-alive"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+    logging: *default-logging
+
+  # ==========================================================================
+  # GRAFANA LGTM STACK
+  # ==========================================================================
+
+  # OpenTelemetry Collector - routes telemetry to Grafana backends
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    container_name: otel-collector
+    profiles:
+      - observability
+
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./infra/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+
+    # Ports exposed internally only - services send telemetry over internal network
+    expose:
+      - "4317"   # OTLP gRPC
+      - "4318"   # OTLP HTTP
+
+    depends_on:
+      - tempo
+      - loki
+      - prometheus
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 128M
+
+    logging: *default-logging
+
+  # Grafana - Visualization + Active Learning UI
+  grafana:
+    image: grafana/grafana:11.6.14
+    container_name: grafana
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: "invoicex-labeling-app"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "true"
+      GF_DEFAULT_APP_MODE: "production"
+      # Postgres backend (replaces embedded SQLite)
+      GF_DATABASE_TYPE: postgres
+      GF_DATABASE_HOST: postgres:5432
+      GF_DATABASE_NAME: grafana
+      GF_DATABASE_USER: ${POSTGRES_USER:-invoicex}
+      GF_DATABASE_PASSWORD: ""
+      # Exposed so Grafana provisioning can interpolate $POSTGRES_USER in datasources.yaml
+      POSTGRES_USER: ${POSTGRES_USER:-invoicex}
+      # disable: Postgres and Grafana are on the same Docker bridge network — acceptable risk
+      GF_DATABASE_SSL_MODE: disable
+      # Root URL for nginx reverse proxy
+      GF_SERVER_ROOT_URL: "${INVOICEX_PUBLIC_URL:-http://localhost}/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/home.json
+      # Azure AD SSO (requires Entra app registration)
+      GF_AUTH_AZUREAD_ENABLED: ${GF_AUTH_AZUREAD_ENABLED:-false}
+      GF_AUTH_AZUREAD_ALLOW_SIGN_UP: "true"
+      GF_AUTH_AZUREAD_CLIENT_ID: ${GRAFANA_AZUREAD_CLIENT_ID:-}
+      GF_AUTH_AZUREAD_CLIENT_SECRET: ${GRAFANA_AZUREAD_CLIENT_SECRET:-}
+      GF_AUTH_AZUREAD_AUTH_URL: https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/authorize
+      GF_AUTH_AZUREAD_TOKEN_URL: https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token
+      GF_AUTH_AZUREAD_SCOPES: openid email profile
+      GF_AUTH_DISABLE_LOGIN_FORM: ${GF_AUTH_DISABLE_LOGIN_FORM:-false}
+      # All SSO users get Admin: only Azure-AD-admitted accounts can sign in,
+      # and Admin grants dashboard create/edit, Explore, and Connections nav.
+      GF_AUTH_AZUREAD_ROLE_ATTRIBUTE_PATH: "'Admin'"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Admin
+      # Explicit: sync role from Azure AD on every login (default already false,
+      # but declare it so future upgrades can't silently flip the default)
+      GF_AUTH_AZUREAD_SKIP_ORG_ROLE_SYNC: "false"
+      # Grafana Drilldown apps (rebranded Explore apps) — metric + log drilldown
+      # panels in the left nav. Requires Grafana >= 11.6.0.
+      GF_INSTALL_PLUGINS: "grafana-metricsdrilldown-app,grafana-lokiexplore-app"
+      # Go backend plugin (Wave U): credentials for the PDF proxy resource handler.
+      # DefaultAzureCredential picks managed identity in prod (IMDS at 169.254.169.254
+      # must be reachable from the Docker bridge — standard on Azure VMs).
+      # AZURE_MANAGED_IDENTITY_CLIENT_ID disambiguates user-assigned managed identity
+      # from AZURE_CLIENT_ID which is the Grafana SSO Azure AD app registration.
+      # AZURE_CLIENT_SECRET is only used when ClientSecretCredential path taken (local dev).
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_MANAGED_IDENTITY_CLIENT_ID: ${VM_MANAGED_IDENTITY_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${GRAFANA_AZUREAD_CLIENT_SECRET:-}
+      SHAREPOINT_SITE_ID: ${SHAREPOINT_SITE_ID:-}
+      POSTGREST_URL: "http://postgrest:3000"
+      # PDF proxy backend (grafana-plugins Go handler): local | http | sharepoint.
+      # Default (local) needs no cloud account — reads ./data/pdfs/<sha256>.pdf.
+      INVOICEX_PDF_SOURCE: ${INVOICEX_PDF_SOURCE:-local}
+      INVOICEX_PDF_LOCAL_DIR: ${INVOICEX_PDF_LOCAL_DIR:-/data/pdfs}
+      INVOICEX_PDF_FETCH_URL_TEMPLATE: ${INVOICEX_PDF_FETCH_URL_TEMPLATE:-}
+      INVOICEX_PDF_FETCH_AUTH_HEADER: ${INVOICEX_PDF_FETCH_AUTH_HEADER:-}
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./grafana-plugins/invoicex-labeling-app/dist:/var/lib/grafana/plugins/invoicex-labeling-app:ro
+      - ./data/pdfs:/data/pdfs:ro
+
+    # Port exposed internally only - nginx proxies /
+    expose:
+      - "3000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+    logging: *default-logging
+
+  # Tempo - Distributed tracing
+  tempo:
+    image: grafana/tempo:2.3.1
+    container_name: tempo
+    profiles:
+      - observability
+
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./infra/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/tmp/tempo
+
+    # Port exposed internally only
+    expose:
+      - "3200"
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3200/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+    logging: *default-logging
+
+  # Loki - Log aggregation
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: loki
+    profiles:
+      - observability
+
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./infra/loki.yaml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+
+    # Port exposed internally only
+    expose:
+      - "3100"
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3100/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+    logging: *default-logging
+
+  # Prometheus - Metrics
+  prometheus:
+    image: prom/prometheus:v2.48.1
+    container_name: prometheus
+    profiles:
+      - observability
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-remote-write-receiver"
+
+    volumes:
+      - ./infra/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+
+    # Port exposed internally only
+    expose:
+      - "9090"
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+    logging: *default-logging
+
+  # Alertmanager config renderer (one-shot init).
+  # Expands ${ALERT_WEBHOOK_URL} in alertmanager.yml.template via envsubst and
+  # writes the result to the shared 'alertmanager_config' volume. alertmanager
+  # waits for this container to exit successfully before starting.
+  # Fails fast (exit 1) if ALERT_WEBHOOK_URL is unset/empty — prevents silently
+  # deploying alertmanager with an un-expanded literal "$ALERT_WEBHOOK_URL" URL.
+  alertmanager-config:
+    image: alpine:3.19
+    container_name: alertmanager-config
+    profiles:
+      - observability
+    environment:
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+    volumes:
+      - ./infra/alertmanager.yml.template:/etc/alertmanager/alertmanager.yml.template:ro
+      - ./infra/alertmanager-render.sh:/usr/local/bin/alertmanager-render.sh:ro
+      - alertmanager_config:/rendered
+    command: >
+      sh -c "apk add --no-cache gettext >/dev/null && /usr/local/bin/alertmanager-render.sh"
+    restart: "no"
+    logging: *default-logging
+
+  # Alertmanager - alert routing and notifications
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: alertmanager
+    profiles:
+      - observability
+    depends_on:
+      alertmanager-config:
+        condition: service_completed_successfully
+    volumes:
+      - alertmanager_config:/etc/alertmanager:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    expose:
+      - "9093"
+    restart: unless-stopped
+    networks:
+      - invoicex-network
+    logging: *default-logging
+
+
+volumes:
+  postgres_data:
+  grafana_data:
+  tempo_data:
+  loki_data:
+  prometheus_data:
+  alertmanager_config:
+  mlflow_artifacts:
+
+networks:
+  invoicex-network:
+    name: invoicex-network

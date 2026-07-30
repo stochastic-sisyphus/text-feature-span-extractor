@@ -1,0 +1,325 @@
+# =============================================================================
+# Deploy CI/CD Pipeline
+# =============================================================================
+# Clean mirror CI — validates code quality, schema, Docker build, and security.
+# Test and pipeline-gate jobs are omitted (deploy repo has no test suite or PDFs).
+# =============================================================================
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop, "release/**", "feature/**"]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: docker-daemon
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  PYTHON_PRIMARY_VERSION: "3.11"
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ===========================================================================
+  # Code Quality: Linting and Type Checking
+  # ===========================================================================
+  quality:
+    name: Code Quality
+    runs-on: [self-hosted, linux, non-prod]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_PRIMARY_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_PRIMARY_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-quality-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-quality-
+            ${{ runner.os }}-pip-
+
+      - name: Install linting tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install "ruff==0.15.5" "mypy==1.19.1"
+
+      - name: Install project deps
+        run: pip install -e .
+
+      - name: Run Ruff linter
+        env:
+          RUFF_CACHE_DIR: ${{ runner.temp }}/ruff_cache
+        run: ruff check src/ --output-format=github
+
+      - name: Run Ruff formatter check
+        env:
+          RUFF_CACHE_DIR: ${{ runner.temp }}/ruff_cache
+        run: ruff format --check src/
+
+      - name: Run MyPy type checker
+        env:
+          MYPY_CACHE_DIR: ${{ runner.temp }}/mypy_cache
+        run: mypy src/ --ignore-missing-imports --no-error-summary
+
+
+
+  # ===========================================================================
+  # Docker Build, Smoke Test, and Push (develop only)
+  # ===========================================================================
+  docker:
+    name: Docker Build
+    runs-on: [self-hosted, linux, non-prod]
+    timeout-minutes: 30
+    needs: [quality]
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ github.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compute lowercase image name
+        id: names
+        run: echo "lower=$(echo '${{ env.IMAGE_NAME }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Free runner disk
+        run: docker system prune -af
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production image (and push on develop)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: production
+          push: ${{ github.ref == 'refs/heads/develop' }}
+          tags: |
+            ghcr.io/${{ steps.names.outputs.lower }}:${{ github.sha }}
+            ghcr.io/${{ steps.names.outputs.lower }}:latest
+          cache-from: type=registry,ref=ghcr.io/${{ steps.names.outputs.lower }}/cache:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ steps.names.outputs.lower }}/cache:buildcache,mode=max
+          # LiLT is opt-in: set repo variable WITH_LILT=1 (needs release lilt-weights-v1)
+          build-args: |
+            WITH_LILT=${{ vars.WITH_LILT || '0' }}
+          secrets: |
+            gh_token=${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push mlflow sidecar image
+        if: github.ref == 'refs/heads/develop'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./infra/mlflow
+          file: ./infra/mlflow/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.names.outputs.lower }}-mlflow:${{ github.sha }}
+            ghcr.io/${{ steps.names.outputs.lower }}-mlflow:latest
+          cache-from: type=registry,ref=ghcr.io/${{ steps.names.outputs.lower }}/cache:buildcache-mlflow
+          cache-to: type=registry,ref=ghcr.io/${{ steps.names.outputs.lower }}/cache:buildcache-mlflow,mode=max
+
+  # ===========================================================================
+  # Security Scanning
+  # ===========================================================================
+  security:
+    name: Security Scan
+    runs-on: [self-hosted, linux, non-prod]
+    timeout-minutes: 15
+    needs: [quality]
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_PRIMARY_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_PRIMARY_VERSION }}
+
+      - name: Install security tools and project deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit pip-audit
+          pip install -e .
+
+      - name: Run Bandit security linter
+        run: |
+          bandit -r src/ -f json -o bandit-report.json -ll
+          bandit -r src/ -f txt -ll
+
+      - name: Check dependencies for vulnerabilities
+        run: |
+          # CVE-2025-69872 (diskcache pickle deserialization) ignored: mlflow transitive dep, no fix version available upstream
+          pip-audit --desc --fix --dry-run --ignore-vuln CVE-2025-69872 2>&1 | tee pip-audit-report.txt
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # ===========================================================================
+  # CI Summary
+  # ===========================================================================
+  ci-summary:
+    name: CI Summary
+    runs-on: [self-hosted, linux, non-prod]
+    timeout-minutes: 5
+    needs: [quality, docker, security]
+    if: ${{ !cancelled() }}
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Check job results
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          DOCKER_RESULT: ${{ needs.docker.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+        run: |
+          echo "## CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Quality | ${QUALITY_RESULT} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker | ${DOCKER_RESULT} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security | ${SECURITY_RESULT} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          fail=0
+          for result in "${QUALITY_RESULT}" "${DOCKER_RESULT}" "${SECURITY_RESULT}"; do
+            if [[ "${result}" != "success" ]]; then
+              fail=1
+            fi
+          done
+
+          if [[ $fail -eq 1 ]]; then
+            echo "**Overall Status: FAILED**" >> $GITHUB_STEP_SUMMARY
+            echo "::error::CI Pipeline failed - one or more required jobs did not succeed"
+            exit 1
+          else
+            echo "**Overall Status: PASSED**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Post PR comment (on failure)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `## CI Pipeline Failed
+
+            One or more CI jobs failed. Please review the workflow run for details.
+
+            | Job | Status |
+            |-----|--------|
+            | Quality | ${{ needs.quality.result }} |
+            | Docker | ${{ needs.docker.result }} |
+            | Security | ${{ needs.security.result }} |
+
+            [View Workflow Run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  # ===========================================================================
+  # Deploy to VM (develop only, via workflow_call)
+  # ===========================================================================
+  deploy:
+    name: Deploy
+    needs: [docker, ci-summary]
+    if: github.ref == 'refs/heads/develop' && needs.ci-summary.result == 'success'
+    uses: ./.github/workflows/deploy-vm.yml
+    with:
+      image_tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ===========================================================================
+  # Post-deploy LiLT smoke-test (BLOCKING — a LiLT load failure IS a deploy failure)
+  # Enqueues one reextract for the most-recently-evaluated doc, waits 180s
+  # (LiLT CPU decode is slow), then checks worker logs for decode_via_lilt.
+  # Exits non-zero if decode_via_lilt is absent — fails the deploy job.
+  # Skips automatically on non-develop branches (deploy job skips → this skips).
+  # Runs only when repo variable WITH_LILT=1 (LiLT is opt-in).
+  # ===========================================================================
+  smoke-lilt:
+    name: Smoke — LiLT decode post-deploy
+    needs: [deploy]
+    if: ${{ vars.WITH_LILT == '1' }}
+    runs-on: [self-hosted, linux, non-prod]
+    environment:
+      name: Dev
+    permissions:
+      contents: read
+    steps:
+      - name: Enqueue reextract + verify decode_via_lilt
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          trap 'rm -f "$RUNNER_TEMP/vm_key"' EXIT
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set +e
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+             PSQL=\"\$COMPOSE exec -T postgres psql -U invoicex -d invoicex -At -c\"
+
+             echo '=== [smoke] enqueue reextract for most-recently-evaluated doc ==='
+             \$PSQL \"WITH r AS (SELECT e.doc_id FROM doc_evaluations e GROUP BY e.doc_id ORDER BY max(e.created_at) DESC LIMIT 1) SELECT fn_pgqueuer_enqueue('reextract', encode(convert_to(json_build_object('sha', d.payload->>'source_id')::text,'UTF8'),'base64'), d.payload->>'source_id') FROM r JOIN docs d ON d.sha256=r.doc_id WHERE d.payload->>'source_id' IS NOT NULL\"
+
+             echo '=== [smoke] waiting 180s for LiLT CPU decode ==='
+             sleep 180
+
+             echo '=== [smoke] checking worker logs for decode_via_lilt (last 5m) ==='
+             CNT=\$(\$COMPOSE logs --since 5m --no-color worker 2>&1 | grep -c 'decode_via_lilt' || true)
+             if [ \"\${CNT:-0}\" -ge 1 ]; then
+               echo '[smoke] PASS: LiLT decoded a doc post-deploy'
+             else
+               echo '[smoke] FATAL: no decode_via_lilt within 180s — LiLT failed to load; deploy is unhealthy'
+               exit 1
+             fi"

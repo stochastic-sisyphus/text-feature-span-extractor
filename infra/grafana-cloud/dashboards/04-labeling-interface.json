@@ -1,0 +1,240 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Document labeling and verification interface for invoice review",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "arrow-left",
+      "includeVars": false,
+      "keepTime": false,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Back to Queue",
+      "tooltip": "Return to review queue",
+      "type": "link",
+      "url": "/d/invoicex-active-learning-queue"
+    }
+  ],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 2,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "<div style=\"background: linear-gradient(135deg, #1a237e 0%, #283593 100%); padding: 16px 24px; border-radius: 8px; color: white; display: flex; align-items: center; justify-content: space-between;\">\n  <div style=\"display: flex; align-items: center; gap: 16px;\">\n    <span style=\"font-size: 28px;\">PDF</span>\n    <div>\n      <h2 style=\"margin: 0; font-size: 20px; font-weight: 600;\">Document Review: ${document_id}</h2>\n      <p style=\"margin: 4px 0 0 0; opacity: 0.8; font-size: 14px;\">Verify extracted fields and provide corrections if needed</p>\n    </div>\n  </div>\n  <div style=\"display: flex; gap: 12px;\">\n    <a href=\"/d/invoicex-active-learning-queue\" style=\"background: rgba(255,255,255,0.2); color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; display: flex; align-items: center; gap: 8px;\">\n      <span style=\"font-size: 16px;\">BACK</span> Back to Queue\n    </a>\n  </div>\n</div>",
+        "mode": "html"
+      },
+      "pluginVersion": "10.2.0",
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 2,
+        "w": 24,
+        "x": 0,
+        "y": 2
+      },
+      "id": 101,
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "<div style=\"display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f5f5f5; border-radius: 8px; margin-bottom: 8px;\">\n  <div style=\"display: flex; gap: 24px; align-items: center;\">\n    <div style=\"display: flex; align-items: center; gap: 8px;\">\n      <span style=\"font-size: 18px; color: #667eea;\">PAGE</span>\n      <span style=\"font-size: 16px; font-weight: 600;\">Page 1 of 2</span>\n    </div>\n    <div style=\"display: flex; gap: 8px;\">\n      <button style=\"background: #e0e0e0; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;\">Previous</button>\n      <button style=\"background: #667eea; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;\">Next</button>\n    </div>\n  </div>\n  <div style=\"display: flex; gap: 16px; align-items: center;\">\n    <span style=\"color: #666; font-size: 14px;\">Progress: 3 of 10 fields reviewed</span>\n    <div style=\"width: 200px; height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden;\">\n      <div style=\"width: 30%; height: 100%; background: linear-gradient(90deg, #667eea, #764ba2);\"></div>\n    </div>\n  </div>\n</div>",
+        "mode": "html"
+      },
+      "pluginVersion": "10.2.0",
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 102,
+      "panels": [],
+      "title": "",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "description": "PDF document preview - click to zoom",
+      "gridPos": {
+        "h": 20,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "id": 1,
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "<div style=\"background: #f8f9fa; border-radius: 8px; height: 100%; display: flex; flex-direction: column; overflow: hidden;\">\n  <div style=\"padding: 12px 16px; background: #e9ecef; border-bottom: 1px solid #dee2e6; display: flex; justify-content: space-between; align-items: center;\">\n    <span style=\"font-weight: 600; color: #495057;\">Document Preview</span>\n    <div style=\"display: flex; gap: 8px;\">\n      <button style=\"background: white; border: 1px solid #dee2e6; padding: 4px 8px; border-radius: 4px; cursor: pointer;\">Zoom -</button>\n      <span style=\"padding: 4px 8px;\">100%</span>\n      <button style=\"background: white; border: 1px solid #dee2e6; padding: 4px 8px; border-radius: 4px; cursor: pointer;\">Zoom +</button>\n    </div>\n  </div>\n  <div style=\"flex: 1; padding: 16px; display: flex; align-items: center; justify-content: center; background: #6c757d;\">\n    <div style=\"background: white; width: 90%; height: 95%; box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: flex; flex-direction: column; padding: 24px;\">\n      <div style=\"text-align: right; margin-bottom: 24px;\">\n        <div style=\"font-size: 24px; font-weight: bold; color: #1a237e;\">INVOICE</div>\n        <div style=\"color: #666; margin-top: 4px;\">INV-2024-00123</div>\n      </div>\n      <div style=\"display: flex; justify-content: space-between; margin-bottom: 24px;\">\n        <div>\n          <div style=\"font-weight: 600; margin-bottom: 4px;\">From:</div>\n          <div style=\"color: #333;\">Acme Corporation</div>\n          <div style=\"color: #666; font-size: 12px;\">123 Business St</div>\n          <div style=\"color: #666; font-size: 12px;\">New York, NY 10001</div>\n        </div>\n        <div style=\"text-align: right;\">\n          <div style=\"margin-bottom: 8px;\"><strong>Date:</strong> 2024-01-15</div>\n          <div style=\"margin-bottom: 8px;\"><strong>Due:</strong> 2024-02-15</div>\n          <div><strong>Account:</strong> CUST-001</div>\n        </div>\n      </div>\n      <div style=\"border-top: 2px solid #1a237e; border-bottom: 1px solid #dee2e6; padding: 8px 0; margin-bottom: 16px; display: flex; font-weight: 600; color: #495057;\">\n        <div style=\"flex: 2;\">Description</div>\n        <div style=\"flex: 1; text-align: center;\">Qty</div>\n        <div style=\"flex: 1; text-align: right;\">Price</div>\n        <div style=\"flex: 1; text-align: right;\">Amount</div>\n      </div>\n      <div style=\"flex: 1;\">\n        <div style=\"display: flex; padding: 8px 0; border-bottom: 1px solid #f0f0f0;\">\n          <div style=\"flex: 2;\">Consulting Services</div>\n          <div style=\"flex: 1; text-align: center;\">10</div>\n          <div style=\"flex: 1; text-align: right;\">$150.00</div>\n          <div style=\"flex: 1; text-align: right;\">$1,500.00</div>\n        </div>\n        <div style=\"display: flex; padding: 8px 0; border-bottom: 1px solid #f0f0f0;\">\n          <div style=\"flex: 2;\">Software License</div>\n          <div style=\"flex: 1; text-align: center;\">1</div>\n          <div style=\"flex: 1; text-align: right;\">$299.00</div>\n          <div style=\"flex: 1; text-align: right;\">$299.00</div>\n        </div>\n      </div>\n      <div style=\"margin-top: auto; border-top: 2px solid #dee2e6; padding-top: 12px;\">\n        <div style=\"display: flex; justify-content: flex-end; margin-bottom: 4px;\">\n          <span style=\"width: 120px;\">Subtotal:</span>\n          <span style=\"width: 100px; text-align: right;\">$1,799.00</span>\n        </div>\n        <div style=\"display: flex; justify-content: flex-end; margin-bottom: 4px;\">\n          <span style=\"width: 120px;\">Tax (10%):</span>\n          <span style=\"width: 100px; text-align: right;\">$179.90</span>\n        </div>\n        <div style=\"display: flex; justify-content: flex-end; font-size: 18px; font-weight: bold; color: #1a237e;\">\n          <span style=\"width: 120px;\">Total:</span>\n          <span style=\"width: 100px; text-align: right;\">$1,978.90</span>\n        </div>\n      </div>\n    </div>\n  </div>\n</div>",
+        "mode": "html"
+      },
+      "pluginVersion": "10.2.0",
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 20,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "id": 2,
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "<div style=\"background: white; border-radius: 8px; height: 100%; display: flex; flex-direction: column; border: 1px solid #dee2e6;\">\n  <div style=\"padding: 16px 20px; background: #f8f9fa; border-bottom: 1px solid #dee2e6; border-radius: 8px 8px 0 0;\">\n    <h3 style=\"margin: 0; color: #1a237e; font-size: 18px;\">Extracted Fields</h3>\n    <p style=\"margin: 4px 0 0 0; color: #666; font-size: 13px;\">Review each field and mark as correct or provide corrections</p>\n  </div>\n  \n  <div style=\"flex: 1; overflow-y: auto; padding: 16px;\">\n    <!-- Field: Invoice Number -->\n    <div style=\"margin-bottom: 16px; padding: 16px; background: #e8f5e9; border-radius: 8px; border-left: 4px solid #4CAF50;\">\n      <div style=\"display: flex; justify-content: space-between; align-items: flex-start;\">\n        <div>\n          <div style=\"font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;\">Invoice Number</div>\n          <div style=\"font-size: 18px; font-weight: 600; color: #1a237e; margin-top: 4px;\">INV-2024-00123</div>\n          <div style=\"font-size: 12px; color: #4CAF50; margin-top: 4px;\">Confidence: 98%</div>\n        </div>\n        <div style=\"display: flex; gap: 8px;\">\n          <button style=\"background: #4CAF50; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500;\">Correct</button>\n          <button style=\"background: white; color: #F44336; border: 2px solid #F44336; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500;\">Wrong</button>\n        </div>\n      </div>\n    </div>\n    \n    <!-- Field: Invoice Date -->\n    <div style=\"margin-bottom: 16px; padding: 16px; background: #e8f5e9; border-radius: 8px; border-left: 4px solid #4CAF50;\">\n      <div style=\"display: flex; justify-content: space-between; align-items: flex-start;\">\n        <div>\n          <div style=\"font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;\">Invoice Date</div>\n          <div style=\"font-size: 18px; font-weight: 600; color: #1a237e; margin-top: 4px;\">2024-01-15</div>\n          <div style=\"font-size: 12px; color: #4CAF50; margin-top: 4px;\">Confidence: 95%</div>\n        </div>\n        <div style=\"display: flex; gap: 8px;\">\n          <button style=\"background: #4CAF50; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500;\">Correct</button>\n          <button style=\"background: white; color: #F44336; border: 2px solid #F44336; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500;\">Wrong</button>\n        </div>\n      </div>\n    </div>\n    \n    <!-- Field: Total Amount (Low Confidence) -->\n    <div style=\"margin-bottom: 16px; padding: 16px; background: #fff3e0; border-radius: 8px; border-left: 4px solid #FF9800;\">\n      <div style=\"display: flex; justify-content: space-between; align-items: flex-start;\">\n        <div>\n          <div style=\"font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;\">Total Amount</div>\n          <div style=\"font-size: 18px; font-weight: 600; color: #1a237e; margin-top: 4px;\">$1,978.90</div>\n          <div style=\"font-size: 12px; color: #FF9800; margin-top: 4px;\">Confidence: 72% - Needs Review</div>\n        </div>\n        <div style=\"display: flex; gap: 8px;\">\n          <button style=\"background: #4CAF50; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500;\">Correct</button>\n          <button style=\"background: white; color: #F44336; border: 2px solid #F44336; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500;\">Wrong</button>\n        </div>\n      </div>\n      <div style=\"margin-top: 12px;\">\n        <input type=\"text\" placeholder=\"Enter correct value if wrong...\" style=\"width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;\" />\n      </div>\n    </div>\n    \n    <!-- Field: Vendor Name -->\n    <div style=\"margin-bottom: 16px; padding: 16px; background: #e8f5e9; border-radius: 8px; border-left: 4px solid #4CAF50;\">\n      <div style=\"display: flex; justify-content: space-between; align-items: flex-start;\">\n        <div>\n          <div style=\"font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;\">Vendor Name</div>\n          <div style=\"font-size: 18px; font-weight: 600; color: #1a237e; margin-top: 4px;\">Acme Corporation</div>\n          <div style=\"font-size: 12px; color: #4CAF50; margin-top: 4px;\">Confidence: 92%</div>\n        </div>\n        <div style=\"display: flex; gap: 8px;\">\n          <button style=\"background: #4CAF50; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500;\">Correct</button>\n          <button style=\"background: white; color: #F44336; border: 2px solid #F44336; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500;\">Wrong</button>\n        </div>\n      </div>\n    </div>\n    \n    <!-- Field: Due Date (Abstain) -->\n    <div style=\"margin-bottom: 16px; padding: 16px; background: #ffebee; border-radius: 8px; border-left: 4px solid #F44336;\">\n      <div style=\"display: flex; justify-content: space-between; align-items: flex-start;\">\n        <div>\n          <div style=\"font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;\">Due Date</div>\n          <div style=\"font-size: 18px; font-weight: 600; color: #9e9e9e; margin-top: 4px;\">Not extracted</div>\n          <div style=\"font-size: 12px; color: #F44336; margin-top: 4px;\">Status: ABSTAIN - Model uncertain</div>\n        </div>\n      </div>\n      <div style=\"margin-top: 12px;\">\n        <input type=\"text\" placeholder=\"Enter the due date from the document...\" style=\"width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;\" />\n      </div>\n    </div>\n    \n    <!-- More fields would follow... -->\n  </div>\n  \n  <div style=\"padding: 16px 20px; background: #f8f9fa; border-top: 1px solid #dee2e6; border-radius: 0 0 8px 8px;\">\n    <div style=\"display: flex; justify-content: space-between; align-items: center;\">\n      <div style=\"color: #666; font-size: 14px;\">\n        <span style=\"font-size: 18px; margin-right: 8px;\">HINT</span>\n        Click on a field in the document to highlight its location\n      </div>\n      <div style=\"display: flex; gap: 12px;\">\n        <button style=\"background: #e0e0e0; color: #333; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 600;\">Skip Document</button>\n        <button style=\"background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 32px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 16px;\">Submit Review</button>\n      </div>\n    </div>\n  </div>\n</div>",
+        "mode": "html"
+      },
+      "pluginVersion": "10.2.0",
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "id": 103,
+      "panels": [],
+      "title": "Quick Help",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Dashboard --"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "id": 3,
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "<div style=\"display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;\">\n  <div style=\"background: #e3f2fd; padding: 16px; border-radius: 8px; text-align: center;\">\n    <div style=\"font-size: 24px; margin-bottom: 8px;\">CHECK</div>\n    <div style=\"font-weight: 600; color: #1565C0;\">Correct</div>\n    <div style=\"font-size: 13px; color: #666; margin-top: 4px;\">Click when the extracted value matches the document</div>\n  </div>\n  <div style=\"background: #ffebee; padding: 16px; border-radius: 8px; text-align: center;\">\n    <div style=\"font-size: 24px; margin-bottom: 8px;\">X</div>\n    <div style=\"font-weight: 600; color: #C62828;\">Wrong</div>\n    <div style=\"font-size: 13px; color: #666; margin-top: 4px;\">Click and enter the correct value</div>\n  </div>\n  <div style=\"background: #fff3e0; padding: 16px; border-radius: 8px; text-align: center;\">\n    <div style=\"font-size: 24px; margin-bottom: 8px;\">?</div>\n    <div style=\"font-weight: 600; color: #E65100;\">Uncertain</div>\n    <div style=\"font-size: 13px; color: #666; margin-top: 4px;\">Orange fields need extra attention</div>\n  </div>\n  <div style=\"background: #f3e5f5; padding: 16px; border-radius: 8px; text-align: center;\">\n    <div style=\"font-size: 24px; margin-bottom: 8px;\">SKIP</div>\n    <div style=\"font-weight: 600; color: #7B1FA2;\">Skip</div>\n    <div style=\"font-size: 13px; color: #666; margin-top: 4px;\">Use for unreadable or problematic documents</div>\n  </div>\n</div>",
+        "mode": "html"
+      },
+      "pluginVersion": "10.2.0",
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": ["invoicex", "labeling", "review", "grafana-cloud", "client-facing"],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "hide": 0,
+        "label": "Document ID",
+        "name": "document_id",
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "query": "",
+        "skipUrlSync": false,
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {
+    "hidden": true
+  },
+  "timezone": "browser",
+  "title": "InvoiceX - Labeling Interface",
+  "uid": "invoicex-labeling-interface",
+  "version": 1,
+  "weekStart": ""
+}

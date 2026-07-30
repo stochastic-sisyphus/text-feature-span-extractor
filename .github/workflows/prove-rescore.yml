@@ -1,0 +1,55 @@
+name: Prove Rescore (manual)
+on:
+  workflow_dispatch: {}
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  prove:
+    name: Enqueue reextract for recent docs and verify model is used
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: Enqueue reextract for recent docs and verify model is used
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set +e
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+             PSQL=\"\$COMPOSE exec -T postgres psql -U invoicex -d invoicex -At\"
+
+             echo '=== model run vs latest eval timestamps ==='
+             \$PSQL -c \"SELECT run_id, created_at FROM model_runs ORDER BY id DESC LIMIT 1\"
+             \$PSQL -c \"SELECT max(created_at) AS latest_eval FROM doc_evaluations\"
+
+             echo '=== evals POSTDATING the model (bounded 300): used_ml true vs not — bug-already-proven if post_not_true>0 ==='
+             \$PSQL -c \"WITH m AS (SELECT created_at FROM model_runs ORDER BY id DESC LIMIT 1), post AS (SELECT e.payload FROM doc_evaluations e, m WHERE e.created_at > m.created_at ORDER BY e.created_at DESC LIMIT 300) SELECT count(*) FILTER (WHERE (payload->>'used_ml_model')::bool IS TRUE) AS post_true, count(*) FILTER (WHERE (payload->>'used_ml_model')::bool IS NOT TRUE) AS post_not_true, count(*) AS post_total FROM post\"
+
+             echo '=== enqueue reextract for 5 most-recently-evaluated docs (source_id resolved) ==='
+             \$PSQL -c \"WITH recent AS (SELECT e.doc_id, max(e.created_at) AS mc FROM doc_evaluations e GROUP BY e.doc_id ORDER BY mc DESC LIMIT 5) SELECT d.payload->>'source_id' AS source_id, fn_pgqueuer_enqueue('reextract', encode(convert_to(json_build_object('sha', d.payload->>'source_id')::text,'UTF8'),'base64'), d.payload->>'source_id') FROM recent r JOIN docs d ON d.sha256 = r.doc_id WHERE d.payload->>'source_id' IS NOT NULL\"
+
+             echo '=== pgqueuer reextract status immediately after enqueue ==='
+             \$PSQL -c \"SELECT status, count(*) FROM pgqueuer WHERE entrypoint='reextract' GROUP BY status ORDER BY status\"
+
+             echo '=== wait 150s for reextract to run + score ==='
+             sleep 150
+
+             echo '=== worker log: reextract + model_loader + decode events (since 5m) ==='
+             \$COMPOSE logs --since 5m --no-color worker 2>&1 | grep -iE 'reextract_start|reextract_done|reextract_persist|reextract_missing|model_loader|decode|used_ml|train_ranker|exception|traceback|sharepoint.*download|SharePointError' | tail -80 || true
+
+             echo '=== pgqueuer reextract status after wait ==='
+             \$PSQL -c \"SELECT status, count(*) FROM pgqueuer WHERE entrypoint='reextract' GROUP BY status ORDER BY status\"
+
+             echo '=== used_ml_recent re-check (bounded 300 — safe) ==='
+             \$PSQL -c \"SELECT count(*) FILTER (WHERE (payload->>'used_ml_model')::bool IS TRUE) AS used_ml_recent, count(*) AS recent_total FROM (SELECT payload FROM doc_evaluations ORDER BY created_at DESC LIMIT 300) s\"
+
+             echo '=== PROVE-RESCORE DONE ==='"
+          rm -f "$RUNNER_TEMP/vm_key"

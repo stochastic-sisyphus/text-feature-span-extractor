@@ -1,0 +1,45 @@
+name: MLflow Inspect (manual)
+on:
+  workflow_dispatch: {}
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  inspect:
+    name: MLflow Inspect (manual)
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: MLflow Inspect (manual)
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set +e
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+             PSQLM=\"\$COMPOSE exec -T postgres psql -U invoicex -d mlflow -At\"
+
+             echo '=== mlflow experiments ==='
+             \$PSQLM -c \"SELECT experiment_id, name, lifecycle_stage FROM experiments ORDER BY experiment_id\"
+
+             echo '=== mlflow runs (recent 40: uuid, exp, status, started_date, name) ==='
+             \$PSQLM -c \"SELECT run_uuid, experiment_id, status, to_timestamp(start_time/1000)::date AS started, name FROM runs ORDER BY start_time DESC LIMIT 40\"
+
+             echo '=== run names via mlflow.runName tag (recent 40) ==='
+             \$PSQLM -c \"SELECT r.run_uuid, t.value FROM runs r LEFT JOIN tags t ON t.run_uuid=r.run_uuid AND t.key='mlflow.runName' ORDER BY r.start_time DESC LIMIT 40\"
+
+             echo '=== LiLT artifact dirs in /mlartifacts (the smoking gun)? ==='
+             \$COMPOSE exec -T mlflow find /mlartifacts -maxdepth 6 -type d -iname lilt 2>&1 | head -30
+
+             echo '=== artifact dir tree (depth 4, to see what each run logged) ==='
+             \$COMPOSE exec -T mlflow find /mlartifacts -maxdepth 4 -type d 2>&1 | head -150
+
+             echo '=== MLFLOW INSPECT DONE ==='"
+          rm -f "$RUNNER_TEMP/vm_key"

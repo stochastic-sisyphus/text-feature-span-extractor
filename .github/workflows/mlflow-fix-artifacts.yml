@@ -1,0 +1,42 @@
+name: MLflow Fix Artifact Location (manual)
+on:
+  workflow_dispatch: {}
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  fix_artifacts:
+    name: Repoint mlflow experiments from wasbs:// to mlflow-artifacts:/ proxy
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: Repoint mlflow experiments from wasbs:// to mlflow-artifacts:/ proxy
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set -e
+             # SAFETY:
+             # - Only artifact_location is updated on experiments WHERE wasbs:// scheme is present
+             # - Repoints to mlflow-artifacts:/<experiment_id> so saves route through the server proxy to /mlartifacts
+             # - No invoicex data is touched (mlflow DB only)
+             # - Nothing is restarted (mlflow server continues serving; this is a metadata-only fix)
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+             MLPSQL=\"\$COMPOSE exec -T postgres psql -U invoicex -d mlflow\"
+
+             echo '=== BEFORE: experiments artifact_location ==='
+             \$MLPSQL -At -c \"SELECT experiment_id, name, artifact_location FROM experiments ORDER BY experiment_id\"
+
+             echo '=== FIX: repoint wasbs:// experiments to mlflow-artifacts:/<id> (proxy → /mlartifacts) ==='
+             \$MLPSQL -v ON_ERROR_STOP=1 -c \"UPDATE experiments SET artifact_location = 'mlflow-artifacts:/' || experiment_id WHERE artifact_location LIKE 'wasbs://%'\"
+
+             echo '=== AFTER: experiments artifact_location (expect mlflow-artifacts:/N) ==='
+             \$MLPSQL -At -c \"SELECT experiment_id, name, artifact_location FROM experiments ORDER BY experiment_id\""
+          rm -f "$RUNNER_TEMP/vm_key"

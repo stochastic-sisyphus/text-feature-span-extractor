@@ -1,0 +1,197 @@
+# InvoiceX Pipeline Alerting Rules
+# Prometheus alerting rules for invoice extraction pipeline
+
+groups:
+  - name: invoicex-pipeline
+    interval: 30s
+    rules:
+      # High abstention rate - model may need retraining
+      - alert: HighAbstainRate
+        expr: |
+          sum(rate(invoicex_field_status_total{status="ABSTAIN"}[1h]))
+          /
+          sum(rate(invoicex_field_status_total[1h]))
+          > 0.3
+        for: 15m
+        labels:
+          severity: warning
+          service: invoicex
+        annotations:
+          summary: "High abstention rate detected"
+          description: "More than 30% of field predictions are ABSTAIN over the last hour. Model may need retraining or confidence thresholds adjustment."
+          runbook_url: "https://docs.invoicex/runbooks/high-abstain-rate"
+
+      # Extraction latency degradation
+      - alert: ExtractionLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(invoicex_pipeline_duration_seconds_bucket[5m])) by (le)
+          ) > 60
+        for: 10m
+        labels:
+          severity: warning
+          service: invoicex
+        annotations:
+          summary: "High extraction latency"
+          description: "95th percentile extraction latency is above 60 seconds. Check for complex documents or resource constraints."
+          runbook_url: "https://docs.invoicex/runbooks/high-latency"
+
+      # Critical latency - may timeout
+      - alert: ExtractionLatencyCritical
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(invoicex_pipeline_duration_seconds_bucket[5m])) by (le)
+          ) > 120
+        for: 5m
+        labels:
+          severity: critical
+          service: invoicex
+        annotations:
+          summary: "Critical extraction latency"
+          description: "95th percentile extraction latency exceeds 2 minutes. Documents may be timing out."
+          runbook_url: "https://docs.invoicex/runbooks/critical-latency"
+
+      # Error rate spike
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(invoicex_pipeline_errors_total[5m]))
+          /
+          sum(rate(invoicex_documents_processed_total[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: invoicex
+        annotations:
+          summary: "High pipeline error rate"
+          description: "More than 5% of documents are failing extraction. Check logs for error patterns."
+          runbook_url: "https://docs.invoicex/runbooks/high-error-rate"
+
+      # Critical error rate
+      - alert: CriticalErrorRate
+        expr: |
+          sum(rate(invoicex_pipeline_errors_total[5m]))
+          /
+          sum(rate(invoicex_documents_processed_total[5m]))
+          > 0.15
+        for: 5m
+        labels:
+          severity: critical
+          service: invoicex
+        annotations:
+          summary: "Critical pipeline error rate"
+          description: "More than 15% of documents are failing extraction. Pipeline may be broken."
+          runbook_url: "https://docs.invoicex/runbooks/critical-error-rate"
+
+      # Review queue growing
+      - alert: ReviewQueueGrowing
+        expr: |
+          invoicex_review_queue_size > 100
+          and
+          delta(invoicex_review_queue_size[1h]) > 20
+        for: 30m
+        labels:
+          severity: warning
+          service: invoicex
+        annotations:
+          summary: "Review queue growing"
+          description: "Review queue has {{ $value }} items and is growing. Review throughput may be insufficient."
+          runbook_url: "https://docs.invoicex/runbooks/review-queue-growing"
+
+      # Low confidence overall - may indicate data drift
+      - alert: LowAverageConfidence
+        expr: |
+          avg(invoicex_confidence{status="PREDICTED"}) < 0.7
+        for: 1h
+        labels:
+          severity: warning
+          service: invoicex
+        annotations:
+          summary: "Low average confidence"
+          description: "Average prediction confidence is below 70%. This may indicate data drift or model degradation."
+          runbook_url: "https://docs.invoicex/runbooks/low-confidence"
+
+      # Pipeline not processing documents
+      - alert: PipelineStalled
+        expr: |
+          sum(rate(invoicex_documents_processed_total[30m])) == 0
+        for: 1h
+        labels:
+          severity: critical
+          service: invoicex
+        annotations:
+          summary: "Pipeline not processing documents"
+          description: "No documents have been processed in the last hour. Check intake and pipeline health."
+          runbook_url: "https://docs.invoicex/runbooks/pipeline-stalled"
+
+      # Specific field degradation
+      - alert: FieldExtractionDegraded
+        expr: |
+          sum(rate(invoicex_field_status_total{status="PREDICTED"}[1h])) by (field)
+          /
+          sum(rate(invoicex_field_status_total[1h])) by (field)
+          < 0.5
+        for: 30m
+        labels:
+          severity: warning
+          service: invoicex
+        annotations:
+          summary: "Field extraction degraded"
+          description: "Field {{ $labels.field }} has less than 50% successful predictions. Check field-specific patterns."
+          runbook_url: "https://docs.invoicex/runbooks/field-degraded"
+
+  - name: invoicex-infrastructure
+    interval: 1m
+    rules:
+      # Container health
+      - alert: ContainerUnhealthy
+        expr: |
+          up{job="invoicex"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: invoicex
+        annotations:
+          summary: "InvoiceX container unhealthy"
+          description: "InvoiceX container health check is failing. Container may be down or unresponsive."
+          runbook_url: "https://docs.invoicex/runbooks/container-unhealthy"
+
+      # Memory pressure
+      - alert: HighMemoryUsage
+        expr: |
+          container_memory_working_set_bytes{container="invoicex"}
+          /
+          container_spec_memory_limit_bytes{container="invoicex"}
+          > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          service: invoicex
+        annotations:
+          summary: "High memory usage"
+          description: "InvoiceX container is using more than 85% of its memory limit. May OOM soon."
+          runbook_url: "https://docs.invoicex/runbooks/high-memory"
+
+      # OTEL collector health
+      - alert: OTELCollectorDown
+        expr: |
+          up{job="otel-collector"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: otel-collector
+        annotations:
+          summary: "OpenTelemetry Collector down"
+          description: "OTEL Collector is not responding. Telemetry data may be lost."
+          runbook_url: "https://docs.invoicex/runbooks/otel-down"
+
+      # Quality gate failure on retrain
+      - alert: QualityGateFailed
+        expr: invoicex_training_runs_total{status="quality_gate_failed"} > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: invoicex
+        annotations:
+          summary: "Quality gate failed on retrain"
+          description: "Training completed but quality gate did not pass. Review model before deploying."

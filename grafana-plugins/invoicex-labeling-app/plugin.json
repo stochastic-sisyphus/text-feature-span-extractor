@@ -1,0 +1,59 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "app",
+  "name": "InvoiceX Labeling",
+  "id": "invoicex-labeling-app",
+  "info": {
+    "keywords": ["invoice", "labeling", "active-learning", "annotation"],
+    "description": "Invoice document labeling interface for active learning",
+    "author": {
+      "name": "InvoiceX Team"
+    },
+    "version": "1.0.1",
+    "updated": "2026-01-26"
+  },
+  "includes": [
+    {
+      "type": "page",
+      "name": "Documents",
+      "path": "/a/invoicex-labeling-app/queue",
+      "role": "Viewer",
+      "addToNav": true,
+      "defaultNav": true
+    },
+    {
+      "type": "page",
+      "name": "Label Document",
+      "path": "/a/invoicex-labeling-app/label",
+      "role": "Viewer",
+      "addToNav": false
+    },
+    {
+      "type": "page",
+      "name": "Field Manager",
+      "path": "/a/invoicex-labeling-app/schema",
+      "role": "Viewer",
+      "addToNav": true
+    },
+    {
+      "type": "page",
+      "name": "Model",
+      "path": "/a/invoicex-labeling-app/model",
+      "role": "Viewer",
+      "addToNav": true
+    },
+    {
+      "type": "page",
+      "name": "Results",
+      "path": "/a/invoicex-labeling-app/results",
+      "role": "Viewer",
+      "addToNav": true
+    }
+  ],
+  "backend": true,
+  "executable": "gpx_invoicex-labeling-app",
+  "dependencies": {
+    "grafanaDependency": ">=11.6.0",
+    "plugins": []
+  }
+}

@@ -1,0 +1,102 @@
+# =============================================================================
+# Architecture Diagrams
+# =============================================================================
+# Generates architecture diagrams (Mermaid) and commits updated SVGs to
+# docs/ on main.
+#
+# Triggers: src/**, docker-compose, diagram scripts/sources, weekly, manual
+# =============================================================================
+
+name: Architecture Diagrams
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: diagram-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  generate-diagram:
+    name: Generate diagrams
+    runs-on: [self-hosted, linux, non-prod]
+    timeout-minutes: 10
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create output directory
+        run: mkdir -p docs
+
+      # -- Mermaid architecture diagram --
+      - name: Set up Node.js
+        id: mermaid-node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install PyYAML
+        id: mermaid-pyyaml
+        run: pip install pyyaml
+
+      - name: Generate architecture diagram (Mermaid source)
+        id: mermaid-source
+        run: python scripts/generate_diagram.py
+
+      - name: Install Mermaid CLI
+        id: mermaid-cli
+        run: npm install -g @mermaid-js/mermaid-cli
+
+      - name: Install Chrome with system dependencies
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@latest
+        with:
+          install-dependencies: true
+          install-chromedriver: false
+
+      - name: Render all Mermaid diagrams to SVG
+        env:
+          PUPPETEER_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: |
+          PUPPETEER_CFG="${{ runner.temp }}/puppeteer.json"
+          echo '{"args":["--no-sandbox"]}' > "$PUPPETEER_CFG"
+          for mmd in docs/*.mmd; do
+            svg="${mmd%.mmd}.svg"
+            echo "Rendering $mmd → $svg"
+            npx mmdc \
+              -i "$mmd" \
+              -o "$svg" \
+              -b "#F2EBE3" \
+              -c docs/mermaid-config.json \
+              -w 1200 \
+              -H 900 \
+              --scale 2 \
+              -p "$PUPPETEER_CFG"
+          done
+
+      # -- Commit updated diagrams to main --
+      - name: Commit updated diagrams
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/*.mmd docs/*.svg docs/mermaid-config.json 2>/dev/null || true
+          git diff --cached --quiet && { echo "No diagram changes"; exit 0; }
+          git commit -m "update diagrams [skip ci]"
+          git pull --rebase origin "${{ github.ref_name }}" || {
+            echo "::warning::Rebase failed — skipping diagram push"
+            git rebase --abort 2>/dev/null || true
+            exit 0
+          }
+          git push

@@ -1,0 +1,57 @@
+name: LiLT Results (bounded dump)
+on:
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Time window in hours (default 6)"
+        type: number
+        default: 6
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  lilt-results:
+    name: LiLT Results
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: Dump recent extraction results (bounded)
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+          HOURS: ${{ inputs.hours }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set +e
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+             PSQL=\"\$COMPOSE exec -T postgres psql -U invoicex -d invoicex -At -c\"
+             HOURS='${HOURS}'
+
+             echo '=== summary: docs and rows in window ==='
+             \$PSQL \"SELECT
+               count(DISTINCT e.doc_id) AS distinct_docs,
+               count(*) AS total_rows,
+               count(*) FILTER (WHERE (e.payload->>'used_ml_model')::bool) AS used_ml_rows
+             FROM doc_evaluations e
+             WHERE e.created_at > now() - (INTERVAL '1 hour' * \${HOURS}::int)\"
+
+             echo \"=== extraction results (LIMIT 800, last \${HOURS}h) ===\"
+             \$PSQL \"SELECT
+               d.payload->>'filename' AS file,
+               e.field,
+               e.payload->'candidates'->0->>'raw_text' AS extracted_value,
+               (e.payload->>'used_ml_model')::bool AS used_ml,
+               round(COALESCE((e.payload->>'priority_score')::numeric,0),3) AS confidence,
+               e.created_at
+             FROM doc_evaluations e
+             JOIN docs d ON d.sha256 = e.doc_id
+             WHERE e.created_at > now() - (INTERVAL '1 hour' * \${HOURS}::int)
+             ORDER BY e.created_at DESC, d.payload->>'filename', e.field
+             LIMIT 800\""
+          rm -f "$RUNNER_TEMP/vm_key"

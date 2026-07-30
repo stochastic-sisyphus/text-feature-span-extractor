@@ -1,0 +1,11 @@
+flowchart LR
+    sp["SharePoint"]:::accent -- DOCUMENT_SOURCE --> doc["Document Source"]:::node
+    blob["Blob Storage\n(MLflow model artifacts)"]:::accent -- STORAGE_BACKEND --> store["Storage Backend"]:::node
+    dv["Dataverse"]:::accent -- OUTPUT_BACKEND --> out["Output Backend"]:::node
+    pg["Postgres"]:::node -- OUTPUT_BACKEND --> out
+
+    %% Palette
+    classDef node fill:#40312F,stroke:#51504B,color:#dbd6d1
+    classDef accent fill:#46696B,stroke:#69AAB2,color:#dbd6d1
+    classDef io fill:#2A1B16,stroke:#778C89,color:#dbd6d1
+    classDef decision fill:#5C5A72,stroke:#C6C2D2,color:#dbd6d1

@@ -1,0 +1,15 @@
+flowchart LR
+    labels["labels table\nGrafana plugin"]:::node --> retrain["retrain entrypoint\ncron 0 3 * * * or button"]:::accent
+    retrain --> join["latest doc_evaluations\nper labeled doc and field\nbuild_training_rows"]:::node
+    join --> fit["InvoiceFieldRanker.train\nXGBRanker on all labeled rows"]:::accent
+    fit --> mlflow["MLflow log and register\n+ manifest.json"]:::accent
+    mlflow --> runs["model_runs row"]:::io
+    runs --> reextract["reextract\nevery labeled doc"]:::accent
+    join -- "no predictions or no rows" --> reextract
+    reextract --> queue["queue\nre-scored under new model"]:::node
+
+    %% Palette
+    classDef node fill:#40312F,stroke:#51504B,color:#dbd6d1
+    classDef accent fill:#46696B,stroke:#69AAB2,color:#dbd6d1
+    classDef io fill:#2A1B16,stroke:#778C89,color:#dbd6d1
+    classDef decision fill:#5C5A72,stroke:#C6C2D2,color:#dbd6d1

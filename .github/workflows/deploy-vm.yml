@@ -1,0 +1,317 @@
+name: Deploy to VM
+on:
+  workflow_call:
+    inputs:
+      image_tag:
+        required: true
+        type: string
+        description: "Full commit SHA of image to deploy."
+concurrency:
+  group: vm-operations
+  cancel-in-progress: false
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+      packages: read
+    environment:
+      name: Dev
+    env:
+      DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+      IMAGE_NAME: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.image_tag }}
+          fetch-depth: 1
+      - name: Guard — no build directives in shipped compose files
+        run: |
+          if ! command -v yq >/dev/null 2>&1; then
+            curl -fsSL -o "$RUNNER_TEMP/yq" \
+              "https://github.com/mikefarah/yq/releases/download/v4.45.1/yq_linux_amd64"
+            chmod +x "$RUNNER_TEMP/yq"; export PATH="$RUNNER_TEMP:$PATH"
+          fi
+          for f in docker-compose.yml docker-compose.prod.yml; do
+            yq -e '.services.* | select(has("build"))' "$f" >/dev/null 2>&1 \
+              && { echo "::error::build: in $f — VM is runtime-only"; exit 1; }
+          done
+          echo "Guard passed"
+      - name: Stage files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.VM_HOST }}
+          username: ${{ vars.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          source: "docker-compose.yml,docker-compose.prod.yml,infra/,grafana-plugins/,scripts/deploy-stack.sh,scripts/vm-prune.sh"
+          target: ${{ env.DEPLOY }}/.staging
+          overwrite: true
+      - name: Free VM disk
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ vars.VM_HOST }}
+          username: ${{ vars.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: docker system prune -af
+      - name: Deploy on VM
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          GRAFANA_AZUREAD_CLIENT_ID: ${{ secrets.GRAFANA_AZUREAD_CLIENT_ID }}
+          GRAFANA_AZUREAD_CLIENT_SECRET: ${{ secrets.GRAFANA_AZUREAD_CLIENT_SECRET }}
+          INVOICEX_PUBLIC_URL: ${{ vars.INVOICEX_PUBLIC_URL }}
+          ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
+          MANAGED_IDENTITY_ID: ${{ vars.VM_MANAGED_IDENTITY_CLIENT_ID }}
+          SHAREPOINT_HOSTNAME: ${{ vars.SHAREPOINT_HOSTNAME }}
+          SHAREPOINT_SITE_PATH: ${{ vars.SHAREPOINT_SITE_PATH }}
+          SHAREPOINT_FOLDER: ${{ vars.SHAREPOINT_FOLDER }}
+          SHAREPOINT_SITE_ID: ${{ vars.SHAREPOINT_SITE_ID }}
+          MODELS_STORAGE_ACCOUNT: ${{ vars.MODELS_STORAGE_ACCOUNT_NAME }}
+          MODELS_CONTAINER: ${{ vars.MODELS_CONTAINER_NAME }}
+          DATAVERSE_ENVIRONMENT_URL: ${{ vars.DATAVERSE_ENVIRONMENT_URL }}
+          DATAVERSE_STAGING_TABLE: ${{ vars.DATAVERSE_STAGING_TABLE }}
+          DATAVERSE_PRODUCTION_TABLE: ${{ vars.DATAVERSE_PRODUCTION_TABLE }}
+          INVOICEX_DOCUMENT_SOURCE: ${{ vars.INVOICEX_DOCUMENT_SOURCE }}
+          GF_AUTH_AZUREAD_ENABLED: ${{ vars.GF_AUTH_AZUREAD_ENABLED }}
+          MLFLOW_ARTIFACT_ROOT: ${{ vars.MLFLOW_ARTIFACT_ROOT }}
+        with:
+          host: ${{ vars.VM_HOST }}
+          username: ${{ vars.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          command_timeout: 15m
+          envs: IMAGE_TAG,GITHUB_TOKEN,GRAFANA_ADMIN_PASSWORD,GRAFANA_AZUREAD_CLIENT_ID,GRAFANA_AZUREAD_CLIENT_SECRET,INVOICEX_PUBLIC_URL,ENTRA_TENANT_ID,MANAGED_IDENTITY_ID,SHAREPOINT_HOSTNAME,SHAREPOINT_SITE_PATH,SHAREPOINT_FOLDER,SHAREPOINT_SITE_ID,MODELS_STORAGE_ACCOUNT,MODELS_CONTAINER,DATAVERSE_ENVIRONMENT_URL,DATAVERSE_STAGING_TABLE,DATAVERSE_PRODUCTION_TABLE,INVOICEX_DOCUMENT_SOURCE,GF_AUTH_AZUREAD_ENABLED,MLFLOW_ARTIFACT_ROOT
+          script: |
+            set -euo pipefail
+            DEPLOY="${{ env.DEPLOY }}"
+            STAGING="$DEPLOY/.staging"
+            IMG=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+
+            # Atomic swap staged → live
+            for d in infra grafana-plugins; do
+              [ -d "$STAGING/$d" ] || continue
+              [ -d "$DEPLOY/$d" ] && { mv "$DEPLOY/$d" "$DEPLOY/$d.old"; docker run --rm -v "$DEPLOY":/w alpine rm -rf "/w/$d.old" & }
+              mv "$STAGING/$d" "$DEPLOY/$d"
+            done
+            for f in docker-compose.yml docker-compose.prod.yml; do [ -f "$STAGING/$f" ] && mv -f "$STAGING/$f" "$DEPLOY/$f"; done
+            [ -d "$STAGING/scripts" ] && { mkdir -p "$DEPLOY/scripts"; mv "$STAGING/scripts/"*.sh "$DEPLOY/scripts/"; }
+            rm -rf "$STAGING"
+
+            # Restore or generate .htpasswd (nginx MLflow basic auth)
+            mkdir -p "$DEPLOY/backups"
+            HTPASSWD="$DEPLOY/infra/nginx/.htpasswd"; BACKUP="$DEPLOY/backups/.htpasswd.bak"
+            if [ -f "$BACKUP" ] && grep -q ':' "$BACKUP"; then cp "$BACKUP" "$HTPASSWD"
+            elif ! grep -q ':' "$HTPASSWD" 2>/dev/null; then
+              PASS=$(openssl rand -hex 12); printf '%s\n' "$PASS" | htpasswd -niB invoicex > "$HTPASSWD"
+              cp "$HTPASSWD" "$BACKUP"; echo "::warning::New .htpasswd — user=invoicex pass=$PASS"
+            fi
+            chmod -R a+rX "$DEPLOY/infra" "$DEPLOY/grafana-plugins"
+
+            # Write .env (only vars the surviving stack actually reads)
+            cat > "$DEPLOY/.env" <<ENVEOF
+            REGISTRY=ghcr.io
+            IMAGE_NAME=${IMG}
+            IMAGE_TAG=${IMAGE_TAG}
+            ENVIRONMENT=Dev
+            POSTGRES_USER=invoicex
+            INVOICEX_LOG_LEVEL=INFO
+            INVOICEX_LOG_FORMAT=json
+            INVOICEX_PUBLIC_URL=${INVOICEX_PUBLIC_URL}
+            INVOICEX_CONNECTOR_MODE=azure
+            INVOICEX_STORAGE_BACKEND=blob
+            INVOICEX_DOCUMENT_SOURCE=${INVOICEX_DOCUMENT_SOURCE:-sharepoint}
+            INVOICEX_OUTPUT_BACKEND=postgres
+            INVOICEX_DATAVERSE_WRITE_ENABLED=false
+            GRAFANA_ADMIN_USER=admin
+            GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+            GF_AUTH_AZUREAD_ENABLED=${GF_AUTH_AZUREAD_ENABLED:-false}
+            GRAFANA_AZUREAD_CLIENT_ID=${GRAFANA_AZUREAD_CLIENT_ID:-}
+            GRAFANA_AZUREAD_CLIENT_SECRET=${GRAFANA_AZUREAD_CLIENT_SECRET:-}
+            ENTRA_TENANT_ID=${ENTRA_TENANT_ID}
+            AZURE_TENANT_ID=${ENTRA_TENANT_ID}
+            AZURE_CLIENT_ID=${MANAGED_IDENTITY_ID}
+            AZURE_MANAGED_IDENTITY_CLIENT_ID=${MANAGED_IDENTITY_ID}
+            AZURE_STORAGE_ACCOUNT_NAME=${MODELS_STORAGE_ACCOUNT}
+            AZURE_STORAGE_CONTAINER_NAME=${MODELS_CONTAINER}
+            SHAREPOINT_HOSTNAME=${SHAREPOINT_HOSTNAME}
+            SHAREPOINT_SITE_PATH=${SHAREPOINT_SITE_PATH}
+            SHAREPOINT_FOLDER=${SHAREPOINT_FOLDER}
+            SHAREPOINT_SITE_ID=${SHAREPOINT_SITE_ID}
+            DATAVERSE_ENVIRONMENT_URL=${DATAVERSE_ENVIRONMENT_URL}
+            DATAVERSE_STAGING_TABLE=${DATAVERSE_STAGING_TABLE:-new_tem}
+            DATAVERSE_PRODUCTION_TABLE=${DATAVERSE_PRODUCTION_TABLE:-tem}
+            MLFLOW_ARTIFACT_ROOT=${MLFLOW_ARTIFACT_ROOT}
+            INVOICEX_USE_MLFLOW=true
+            INVOICEX_MLFLOW_TRACKING_URI=http://mlflow:5000
+            INVOICEX_MLFLOW_EXPERIMENT_NAME=invoicex
+            ENVEOF
+            chmod 600 "$DEPLOY/.env"
+
+
+            # Pre-migrate the DB schema BEFORE the new worker image boots.
+            # The bumped worker (pgqueuer 1.0.x) needs the `attempts` column and
+            # `failed` enum; if it starts against the old schema it crash-loops and
+            # `deploy-stack.sh`'s `up --wait` times out before the post-up init.sql
+            # apply runs. postgres:16-alpine is unchanged across deploys, so bring
+            # it up alone (idempotent) and apply init.sql now. init.sql is fully
+            # idempotent (IF NOT EXISTS guards + ADD VALUE IF NOT EXISTS).
+            cd "$DEPLOY"
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps postgres
+            echo "==> [pre-migrate] Waiting for postgres to accept connections"
+            for i in $(seq 1 60); do
+              if docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+                   exec -T postgres pg_isready -U invoicex -d invoicex -q; then
+                echo "[pre-migrate] postgres ready (attempt $i)"
+                break
+              fi
+              if [ "$i" = "60" ]; then
+                echo "[pre-migrate] postgres did not become ready within 120s"
+                docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=50 postgres
+                exit 1
+              fi
+              sleep 2
+            done
+            # Stop the worker before applying schema DDL. init.sql takes
+            # AccessExclusiveLock on the pgqueuer table (CREATE INDEX / ALTER),
+            # which deadlocks against the running worker's RowExclusiveLock
+            # writes (dequeue/enqueue). deploy-stack.sh recreates/starts the
+            # worker (new image) immediately after this block, so it is only
+            # paused for the duration of the migration.
+            echo "==> [pre-migrate] stopping worker so schema DDL does not deadlock"
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml stop worker || true
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              exec -T postgres psql -U invoicex -d invoicex \
+              --single-transaction -v ON_ERROR_STOP=1 \
+              < "$DEPLOY/infra/postgres/init.sql"
+            echo "==> [pre-migrate] schema migrated; proceeding to stack deploy"
+
+            # Pull + up (deploy-stack.sh: login, image verify, failure dump on error)
+            cd "$DEPLOY"
+            DEPLOY_PATH="$DEPLOY" \
+            COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml --profile observability" \
+            EXPECTED_IMAGES="ghcr.io/${IMG}:${IMAGE_TAG} ghcr.io/${IMG}-mlflow:${IMAGE_TAG}" \
+            GHCR_USER="${{ github.actor }}" STACK_WAIT_TIMEOUT=300 \
+              bash "$DEPLOY/scripts/deploy-stack.sh" <<< "$GITHUB_TOKEN"
+
+            # Apply init.sql idempotently on every deploy. Stdin redirect from the
+            # VM shell — running inside appleboy/ssh-action's script: block — opens
+            # $DEPLOY/infra/postgres/init.sql post-swap, so the file descriptor
+            # resolves to the post-swap inode on the VM filesystem. compose exec -T
+            # streams that descriptor's content over the local Docker socket to the
+            # container's psql stdin. No bind mount is traversed for transport, so
+            # the inode pinning from the atomic infra/ swap is moot. Canonical
+            # pattern per postgres Docker image docs and PostgREST schema cache
+            # docs. pgrst_watch event trigger fires NOTIFY pgrst from inside the
+            # DDL transaction — schema cache refresh in the same deploy cycle.
+            #
+            # History: 723ee35b first shipped this; 51ba5fe5 reverted it citing
+            # "stdin redirect through docker compose exec is unreliable" — wrong
+            # substrate diagnosis. The transport failure at that time was the
+            # bind-mount inode pinning, not stdin. Do not revert this again
+            # without naming a specific stdin failure mode in a real deploy log.
+            echo "==> Waiting for postgres to accept connections"
+            for i in $(seq 1 60); do
+              if docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+                   exec -T postgres pg_isready -U invoicex -d invoicex -q; then
+                echo "postgres ready (attempt $i)"
+                break
+              fi
+              if [ "$i" = "60" ]; then
+                echo "postgres did not become ready within 120s"
+                docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=50 postgres
+                exit 1
+              fi
+              sleep 2
+            done
+            # Reload PostgREST schema cache so newly-applied RPCs become visible immediately.
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              exec -T postgres psql -U invoicex -d invoicex -v ON_ERROR_STOP=1 \
+              -c "NOTIFY pgrst, 'reload schema'"
+
+            # NOTIFY pgrst alone is unreliable; LISTEN connection can drop or signal silently
+            # no-op. Brute-force restart guarantees fresh schema cache including queue_list,
+            # submit_label, get_document, get_document_source.
+            echo "Reloading PostgREST schema cache (NOTIFY pgrst alone is unreliable)..."
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml restart postgrest
+
+            # Wait for postgrest to come back healthy (PostgREST has no healthcheck —
+            # wait for nginx upstream connectivity via latest_contract_schema RPC).
+            for i in $(seq 1 15); do
+              if curl -fsS --max-time 2 http://127.0.0.1/api/rpc/latest_contract_schema -X POST -d '{}' >/dev/null 2>&1; then
+                echo "  postgrest reachable after ${i} attempts"
+                break
+              fi
+              sleep 2
+            done
+
+            # Surgical Grafana restart so bind-mount plugin swap propagates.
+            # grafana-plugins/ was mv'd above; Grafana's Postgres-cached plugin
+            # registration won't re-fire without a container restart.
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml restart grafana
+
+            # Wait for Grafana to become healthy after restart (max 60s).
+            # Emits stdout every 2s so the SSH session does not go silent and abort.
+            echo "Grafana restarted, waiting for /api/health..."
+            for i in $(seq 1 30); do
+              if curl -fsS --max-time 3 http://127.0.0.1/api/health >/dev/null 2>&1; then
+                echo "Grafana healthy after ${i} attempts (~$((i*2))s)"
+                break
+              fi
+              echo "  attempt ${i}/30..."
+              sleep 2
+            done
+
+            # Restart nginx so it drops stale upstream connections to the
+            # just-restarted Grafana container. Without this, /api/plugins
+            # smoke test 502s on a stale upstream pool.
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml restart nginx
+            for i in $(seq 1 15); do
+              if curl -fsS --max-time 3 http://127.0.0.1/api/health >/dev/null 2>&1; then
+                echo "nginx upstream live after ${i} attempts (~$((i*2))s)"
+                break
+              fi
+              echo "  nginx attempt ${i}/15..."
+              sleep 2
+            done
+
+            # Smoke: Grafana plugin registration (FACTS#11).
+            # GET /api/plugins/<id>/settings with basic auth verifies plugin is registered.
+            # SSO-immune (unlike /a/* which 302-redirects through AzureAD).
+            GF_PASS=$(grep '^GRAFANA_ADMIN_PASSWORD=' "$DEPLOY/.env" | cut -d= -f2- | sed 's/^["\x27]//;s/["\x27]$//')
+            NETRC=$(mktemp); chmod 600 "$NETRC"
+            printf 'machine 127.0.0.1\nlogin admin\npassword %s\n' "$GF_PASS" > "$NETRC"
+            SMOKE_BODY=$(mktemp)
+            SMOKE_CODE=$(curl -s --max-time 15 -o "$SMOKE_BODY" -w '%{http_code}' --netrc-file "$NETRC" \
+              http://127.0.0.1/api/plugins/invoicex-labeling-app/settings)
+            rm -f "$NETRC"
+            case "$SMOKE_CODE" in
+              200)
+                if grep -q '"id":"invoicex-labeling-app"' "$SMOKE_BODY"; then
+                  echo "Smoke OK: plugin registered"
+                else
+                  echo "::error::Plugin HTTP 200 but id not found in body"
+                  cat "$SMOKE_BODY" >&2
+                  rm -f "$SMOKE_BODY"; exit 1
+                fi
+                ;;
+              401)
+                echo "::error::Grafana auth failed (401) — check GRAFANA_ADMIN_PASSWORD secret"
+                rm -f "$SMOKE_BODY"; exit 1
+                ;;
+              404)
+                echo "::error::Plugin not registered (404) — grafana restart or plugin build failed"
+                cat "$SMOKE_BODY" >&2
+                rm -f "$SMOKE_BODY"; exit 1
+                ;;
+              *)
+                echo "::error::Plugin smoke test unexpected status $SMOKE_CODE"
+                cat "$SMOKE_BODY" >&2
+                rm -f "$SMOKE_BODY"; exit 1
+                ;;
+            esac
+            rm -f "$SMOKE_BODY"

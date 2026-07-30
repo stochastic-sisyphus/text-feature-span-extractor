@@ -1,0 +1,57 @@
+name: Queue Remediate (manual)
+on:
+  workflow_dispatch: {}
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  remediate:
+    name: Cancel stale reextract+sharepoint_wake backlog and restart worker
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: Cancel reextract+sharepoint_wake backlog and restart worker
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set -e
+             # SAFETY:
+             # - Only the pgqueuer job-queue table is mutated
+             #   (entrypoint IN ('reextract','sharepoint_wake'), status IN ('queued','picked'))
+             # - Both entrypoints are job-queue exhaust, not source data; canceling rows does not delete or modify docs
+             # - queue_manager_id is also cleared on cancel so pgqueuer's dequeue concurrency accounting
+             #   is not poisoned (canceled rows with qmid set occupy the concurrency slot permanently)
+             # - docs, labels, doc_evaluations, contract_schema are never touched
+             # - postgres is not restarted (it is healthy); only the worker is restarted
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+             PSQL=\"\$COMPOSE exec -T postgres psql -U invoicex -d invoicex\"
+
+             echo '=== BEFORE: pgqueuer status ==='
+             \$PSQL -At -c 'SELECT status, count(*) FROM pgqueuer GROUP BY status ORDER BY status'
+             echo '=== BEFORE: reextract+sharepoint_wake rows ==='
+             \$PSQL -At -c \"SELECT status, entrypoint, count(*) FROM pgqueuer WHERE entrypoint IN ('reextract','sharepoint_wake') GROUP BY status, entrypoint\"
+
+             echo '=== CANCEL: stale reextract+sharepoint_wake queued+picked ==='
+             \$PSQL -v ON_ERROR_STOP=1 -c \"UPDATE pgqueuer SET status='canceled', queue_manager_id=NULL WHERE entrypoint IN ('reextract','sharepoint_wake') AND status IN ('queued','picked')\"
+
+             echo '=== AFTER: pgqueuer status ==='
+             \$PSQL -At -c 'SELECT status, count(*) FROM pgqueuer GROUP BY status ORDER BY status'
+             echo '=== AFTER: reextract+sharepoint_wake rows ==='
+             \$PSQL -At -c \"SELECT status, entrypoint, count(*) FROM pgqueuer WHERE entrypoint IN ('reextract','sharepoint_wake') GROUP BY status, entrypoint\"
+
+             echo '=== RESTART: worker only (postgres untouched) ==='
+             \$COMPOSE restart worker
+
+             echo '=== WAIT: 10s for worker to reconnect ==='
+             sleep 10
+             echo '=== WORKER LOGS (last 30 lines) ==='
+             \$COMPOSE logs --tail=30 --no-color worker"
+          rm -f "$RUNNER_TEMP/vm_key"

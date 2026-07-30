@@ -1,0 +1,11 @@
+title = "InvoiceX gitleaks config"
+
+[extend]
+useDefault = true
+
+# Placeholder convention: values like REPLACE_WITH_API_KEY_64 in .env.template
+# are templates, not secrets. Matches the extracted secret only (default
+# regexTarget), so a real-looking key is still caught.
+[[allowlists]]
+description = "REPLACE_WITH_* placeholder values"
+regexes = ['''^REPLACE_WITH_[A-Z0-9_]+$''']

@@ -1,0 +1,43 @@
+name: Cancel Retrain Jobs (manual)
+on:
+  workflow_dispatch: {}
+permissions: {}
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+jobs:
+  cancel_retrain:
+    name: Cancel stuck retrain jobs and restart worker
+    runs-on: [self-hosted, linux, non-prod]
+    permissions:
+      contents: read
+    environment:
+      name: Dev
+    steps:
+      - name: Cancel stuck retrain jobs and restart worker
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          DEPLOY: ${{ vars.VM_DEPLOY_PATH || '/opt/invoicex' }}
+        run: |
+          echo "$SSH_KEY" > "$RUNNER_TEMP/vm_key" && chmod 600 "$RUNNER_TEMP/vm_key"
+          ssh -i "$RUNNER_TEMP/vm_key" -o StrictHostKeyChecking=no "${VM_USER}@${VM_HOST}" \
+            "set -e
+             COMPOSE='docker compose -f ${DEPLOY}/docker-compose.yml -f ${DEPLOY}/docker-compose.prod.yml'
+             PSQL=\"\$COMPOSE exec -T postgres psql -U invoicex -d invoicex\"
+
+             echo '=== BEFORE: retrain jobs ==='
+             \$PSQL -At -c \"SELECT status, count(*) FROM pgqueuer WHERE entrypoint='retrain' GROUP BY status\"
+
+             echo '=== CANCEL: retrain queued+picked (clears queue_manager_id so it does not poison the dequeue slot) ==='
+             \$PSQL -v ON_ERROR_STOP=1 -c \"UPDATE pgqueuer SET status='canceled', queue_manager_id=NULL WHERE entrypoint='retrain' AND status IN ('queued','picked')\"
+
+             echo '=== AFTER: retrain jobs ==='
+             \$PSQL -At -c \"SELECT status, count(*) FROM pgqueuer WHERE entrypoint='retrain' GROUP BY status\"
+
+             echo '=== RESTART: worker only ==='
+             \$COMPOSE restart worker
+             echo '=== WAIT 12s + worker log tail ==='
+             sleep 12
+             \$COMPOSE logs --tail=15 --no-color worker"
+          rm -f "$RUNNER_TEMP/vm_key"
