@@ -25,7 +25,7 @@
     "fork-ts-checker-webpack-plugin": "^9.0.0",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
-    "react-router-dom": "^6.0.0",
+    "react-router-dom": "^7.18.4",
     "replace-in-file-webpack-plugin": "^1.0.6",
     "sass": "^1.69.0",
     "sass-loader": "^13.3.0",
@@ -39,9 +39,9 @@
   },
   "dependencies": {
     "@emotion/css": "^11.11.0",
-    "@grafana/data": "^11.0.0",
-    "@grafana/runtime": "^11.0.0",
-    "@grafana/ui": "^11.0.0",
+    "@grafana/data": "^13.2.3",
+    "@grafana/runtime": "^13.2.3",
+    "@grafana/ui": "^13.2.3",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "fast-json-patch": "^3.1.1",
@@ -60,12 +60,12 @@
     "serialize-javascript": ">=7.0.3",
     "immutable": ">=4.3.8",
     "dompurify": ">=3.3.2",
-    "fast-uri": ">=3.1.2",
+    "fast-uri": ">=4.2.1",
     "form-data": ">=4.0.6",
     "js-cookie": ">=3.0.6",
     "uuid": ">=11.1.1",
     "ws": ">=8.21.0",
-    "brace-expansion": ">=5.0.6",
+    "brace-expansion": ">=5.0.12",
     "protobufjs": ">=7.5.8"
   }
 }
