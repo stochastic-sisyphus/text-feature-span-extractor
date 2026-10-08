@@ -59,7 +59,7 @@ dependencies = [
     "orjson>=3.10,<4",      # fast JSON serializer for structlog log emission
     "structlog>=24.0",      # structured logging (logging.py)
     "opentelemetry-api>=1.25", # OTel span injection in log records (logging.py)
-    "pgqueuer==1.0.2",     # asyncpg-native job queue. Exact pin: schema is inlined in init.sql, must match library version exactly.
+    "pgqueuer==1.5.0",     # asyncpg-native job queue. Exact pin: schema is inlined in init.sql, must match library version exactly.
     "tenacity>=9.0,<10",    # retry-and-degrade at SharePoint boundary
     "mlflow>=3.1,<4",      # model bundle registry — train/reload handlers (Wave P)
 ]
