@@ -2,18 +2,17 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { css } from '@emotion/css';
 import { GrafanaTheme2 } from '@grafana/data';
 import { useStyles2, Button, Input, Badge, Spinner, Alert, Checkbox, Icon } from '@grafana/ui';
-import { config, getBackendSrv } from '@grafana/runtime';
-import { lastValueFrom } from 'rxjs';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import * as pdfjsLib from 'pdfjs-dist';
+import { host } from '../host';
 import { API_BASE, fetchWithRetry, getDocument, getNextDoc, queueList, reextractDoc, submitLabel } from '../utils/api';
 import { getStatusColor, getConfidenceColor, formatConfidencePercent, COLORS } from '../utils/colors';
 import { getLoadingContainerStyles, getErrorContainerStyles } from '../utils/styles';
 import { useConfidenceThresholds } from '../utils/hooks';
 import { type FieldDetail, type PredictionEnvelope, type CandidateSpan } from '../utils/types';
 
-// Point to the worker file copied by CopyWebpackPlugin into dist/
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/public/plugins/invoicex-labeling-app/pdf.worker.min.js';
+// Worker file is copied into the build output by CopyWebpackPlugin; URL is host-specific
+pdfjsLib.GlobalWorkerOptions.workerSrc = host.pdfWorkerSrc;
 
 interface DocumentData {
   doc_id: string;
@@ -543,20 +542,15 @@ export function LabelPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedField]);
 
-  // Load PDF via the Go backend resource handler (/api/plugins/invoicex-labeling-app/resources/pdf/{sha}).
-  // Same-origin fetch — no CORS negotiation. getBackendSrv carries Grafana auth automatically.
+  // Load PDF bytes through the host (Grafana resource handler or standalone /pdf/{sha}).
   useEffect(() => {
     if (!document?.sha256) {return;}
 
     const loadPdf = async () => {
       setPdfLoading(true);
       try {
-        const obs = getBackendSrv().fetch<ArrayBuffer>({
-          url: `/api/plugins/invoicex-labeling-app/resources/pdf/${document.sha256}`,
-          responseType: 'arraybuffer',
-        });
-        const result = await lastValueFrom(obs);
-        const pdf = await pdfjsLib.getDocument({ data: result.data }).promise;
+        const data = await host.pdfBytes(document.sha256);
+        const pdf = await pdfjsLib.getDocument({ data }).promise;
         canvasRefs.current = new Array(pdf.numPages).fill(null);
         setPdfDoc(pdf);
       } catch (err) {
@@ -1095,7 +1089,7 @@ export function LabelPage() {
     setSubmitting(true);
     setFieldErrors({});  // clear stale per-field errors at submit-start
     setError(null);
-    const grafanaUser = config.bootData.user?.login || config.bootData.user?.email || 'unknown';
+    const grafanaUser = await host.currentUser();
 
     // Fire all label requests in parallel. Per-field success/failure is
     // tracked by index. The backend already handles each label idempotently

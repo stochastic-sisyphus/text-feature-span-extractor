@@ -7,6 +7,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
+	"github.com/stochastic-sisyphus/invoiced-labeling-app/internal/pdfsource"
 )
 
 var (
@@ -22,7 +23,7 @@ type App struct {
 func NewApp(_ context.Context, _ backend.AppInstanceSettings) (instancemgmt.Instance, error) {
 	var a App
 	mux := http.NewServeMux()
-	mux.HandleFunc("/pdf/", handlePDF)
+	mux.HandleFunc("/pdf/", pdfsource.Handler)
 	a.CallResourceHandler = httpadapter.New(mux)
 	return &a, nil
 }

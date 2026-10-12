@@ -1,4 +1,4 @@
-package main
+package pdfsource
 
 import (
 	"context"
@@ -8,11 +8,20 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 )
+
+// shaRe is the only accepted document id shape: lowercase sha256 hex.
+var shaRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// httpClient bounds every outbound call so an unreachable PostgREST or
+// upstream cannot stall a request indefinitely.
+var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // docSource is the narrow projection returned by the get_document_source RPC.
 type docSource struct {
@@ -84,7 +93,7 @@ func (httpPDFSource) fetch(ctx context.Context, sha string, src docSource) ([]by
 	if auth := os.Getenv("INVOICEX_PDF_FETCH_AUTH_HEADER"); auth != "" {
 		req.Header.Set("Authorization", auth)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +136,7 @@ func (sharePointPDFSource) fetch(ctx context.Context, _ string, src docSource) (
 	}
 	req.Header.Set("Authorization", "Bearer "+tok.Token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("graph fetch error: %w", err)
 	}
@@ -138,15 +147,15 @@ func (sharePointPDFSource) fetch(ctx context.Context, _ string, src docSource) (
 	return io.ReadAll(resp.Body)
 }
 
-// handlePDF resolves the document's source metadata, fetches the PDF bytes
+// Handler resolves the document's source metadata, fetches the PDF bytes
 // via whichever backend INVOICEX_PDF_SOURCE selects, and streams them back
 // same-origin — no CORS negotiation needed.
 //
 // Route: GET /pdf/{sha256}
-func handlePDF(w http.ResponseWriter, r *http.Request) {
+func Handler(w http.ResponseWriter, r *http.Request) {
 	sha := strings.TrimPrefix(r.URL.Path, "/pdf/")
-	if sha == "" {
-		http.Error(w, "missing sha", http.StatusBadRequest)
+	if !shaRe.MatchString(sha) {
+		http.Error(w, "invalid sha: want 64 lowercase hex characters", http.StatusBadRequest)
 		return
 	}
 
@@ -165,10 +174,13 @@ func handlePDF(w http.ResponseWriter, r *http.Request) {
 	}
 	rpcURL := fmt.Sprintf("%s/rpc/get_document_source", postgrestURL)
 	body := fmt.Sprintf(`{"p_sha":%q}`, sha)
-	if resp, err := http.Post(rpcURL, "application/json", strings.NewReader(body)); err == nil { //nolint:noctx
-		defer resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
-			_ = json.NewDecoder(resp.Body).Decode(&src)
+	if req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, rpcURL, strings.NewReader(body)); err == nil {
+		req.Header.Set("Content-Type", "application/json")
+		if resp, err := httpClient.Do(req); err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				_ = json.NewDecoder(resp.Body).Decode(&src)
+			}
 		}
 	}
 

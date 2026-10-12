@@ -1,0 +1,14 @@
+id: no-grafana-runtime-outside-host-typescript
+language: typescript
+severity: error
+message: "@grafana/runtime may only be imported from src/host/grafana.ts (Grafana host). Use `host` from src/host."
+note: The standalone build must not contain Grafana host code; see docs/standalone.md.
+rule:
+  # matches the specifier of any import / export-from / require / dynamic import / jest.mock
+  kind: string_fragment
+  regex: '^@grafana/runtime(/|$)'
+files:
+  - src/**
+ignores:
+  - src/host/grafana.ts
+  - src/module.ts

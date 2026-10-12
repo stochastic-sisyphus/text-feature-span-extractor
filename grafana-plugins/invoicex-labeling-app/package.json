@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "webpack -w -c ./.config/webpack/webpack.config.ts --env development",
     "build": "webpack -c ./.config/webpack/webpack.config.ts --env production",
+    "build:standalone": "webpack -c ./.config/webpack/webpack.standalone.config.ts",
+    "lint:boundaries": "ast-grep scan",
     "test": "jest",
     "lint": "eslint src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit"

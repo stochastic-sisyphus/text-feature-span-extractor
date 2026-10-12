@@ -1,6 +1,5 @@
 import React, { Suspense } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider, useRouteError } from 'react-router-dom';
-import { AppRootProps } from '@grafana/data';
 
 const QueuePage = React.lazy(() => import('../pages/QueuePage').then((m) => ({ default: m.QueuePage })));
 const LabelPage = React.lazy(() => import('../pages/LabelPage').then((m) => ({ default: m.LabelPage })));
@@ -21,7 +20,8 @@ function RouteErrorBoundary() {
   return <div>{message}</div>;
 }
 
-export function App(props: AppRootProps) {
+// Structurally compatible with Grafana's AppRootProps; host-neutral.
+export function App(props: { basename?: string }) {
   const router = React.useMemo(
     () =>
       createBrowserRouter(

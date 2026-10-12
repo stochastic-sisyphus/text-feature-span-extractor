@@ -74,3 +74,9 @@ backup-restore:
 	@echo "Restore instructions:"
 	@echo "  gunzip < backups/mlflow_YYYYMMDD_HHMMSS.sql.gz | docker exec -i invoicex-postgres psql -U invoicex mlflow"
 	@echo "  gunzip < backups/grafana_YYYYMMDD_HHMMSS.sql.gz | docker exec -i invoicex-postgres psql -U invoicex grafana"
+
+# Standalone SPA (no Grafana host). Output: grafana-plugins/invoicex-labeling-app/dist-standalone/
+# Build-time env: INVOICEX_BASE_URL (default ''), INVOICEX_BASENAME (default '/')
+.PHONY: frontend-standalone
+frontend-standalone:
+	cd grafana-plugins/invoicex-labeling-app && { [ -d node_modules ] || npm ci; } && npm run build:standalone
