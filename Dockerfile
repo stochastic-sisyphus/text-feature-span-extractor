@@ -4,7 +4,7 @@
 # =============================================================================
 # Stage 1: Builder
 # =============================================================================
-FROM python:3.11-slim AS builder
+FROM python:3.14-slim AS builder
 
 # Prevent Python from writing bytecode and buffering stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -33,7 +33,7 @@ RUN pip wheel --wheel-dir /wheels \
 # =============================================================================
 # Stage 2: Production
 # =============================================================================
-FROM python:3.11-slim AS production
+FROM python:3.14-slim AS production
 
 # Security: Run as non-root user
 RUN groupadd --gid 1000 invoicex \
